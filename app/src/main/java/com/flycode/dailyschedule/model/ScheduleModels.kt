@@ -21,12 +21,6 @@ enum class DurationUnit(val label: String) {
     }
 }
 
-enum class PatternMode(val label: String, val hint: String) {
-    PER_STEP_DOSE("每步用量", "每个数字代表该阶段每次的数量，0 为停用/休息"),
-    PER_STEP_FREQUENCY("每步次数", "每个数字代表该阶段每日提醒次数，0 为停用/休息"),
-    WITHIN_DAY_SLOTS("单日时段", "将数字依次填入当天的各个时间段，0 自动跳过提醒")
-}
-
 data class SlotDose(
     val id: String = UUID.randomUUID().toString().take(8),
     val time: String = "08:00",
@@ -57,7 +51,8 @@ data class PlanItem(
     val startDate: LocalDate = LocalDate.now(),
     val repeatCycle: Boolean = false,
     val active: Boolean = true,
-    val stages: List<PlanStage> = emptyList()
+    val stages: List<PlanStage> = emptyList(),
+    val dayOverrides: Map<String, List<SlotDose>> = emptyMap()
 )
 
 data class CheckInRecord(
@@ -87,6 +82,7 @@ data class ResolvedDayPlan(
     val stageTotalDays: Int,
     val cycleNumber: Int,
     val isRestDay: Boolean,
+    val isOverridden: Boolean,
     val activeSlots: List<SlotDose>
 )
 
@@ -158,12 +154,15 @@ object ScheduleEngine {
         cycleNumber: Int
     ): ResolvedDayPlan? {
         var cursor = passStart
+        val dateIso = targetDate.toString()
+        val hasOverride = plan.dayOverrides.containsKey(dateIso)
         plan.stages.forEachIndexed { index, stage ->
             val nextCursor = stage.durationUnit.addTo(cursor, stage.durationValue)
             if (!targetDate.isBefore(cursor) && targetDate.isBefore(nextCursor)) {
                 val totalDays = ChronoUnit.DAYS.between(cursor, nextCursor).toInt().coerceAtLeast(1)
                 val dayInStage = ChronoUnit.DAYS.between(cursor, targetDate).toInt() + 1
-                val activeSlots = stage.slots
+                val rawSlots = if (hasOverride) plan.dayOverrides[dateIso].orEmpty() else stage.slots
+                val activeSlots = rawSlots
                     .filter { it.amount > 0.0 }
                     .sortedBy { it.parsedTime }
                 return ResolvedDayPlan(
@@ -178,6 +177,7 @@ object ScheduleEngine {
                     stageTotalDays = totalDays,
                     cycleNumber = cycleNumber,
                     isRestDay = activeSlots.isEmpty(),
+                    isOverridden = hasOverride,
                     activeSlots = activeSlots
                 )
             }
@@ -201,99 +201,6 @@ object ScheduleEngine {
             rounded.toString()
         } else {
             amount.toBigDecimal().stripTrailingZeros().toPlainString()
-        }
-    }
-}
-
-object PatternParser {
-
-    fun parseNumbers(raw: String): List<Double> {
-        val tokens = raw
-            .trim()
-            .split(Regex("[,，\\s/;；|]+"))
-            .filter { it.isNotBlank() }
-        return tokens.mapNotNull { token ->
-            token.toDoubleOrNull()?.takeIf { it >= 0.0 }
-        }
-    }
-
-    fun generateStages(
-        rawPattern: String,
-        mode: PatternMode,
-        stepDurationValue: Int,
-        stepDurationUnit: DurationUnit,
-        templateTimes: List<SlotDose>,
-        defaultPerSlotAmount: Double = 1.0
-    ): List<PlanStage> {
-        val numbers = parseNumbers(rawPattern)
-        if (numbers.isEmpty()) return emptyList()
-
-        val baseTimes = templateTimes.ifEmpty {
-            listOf(
-                SlotDose(id = "t1", time = "08:00", label = "早", amount = defaultPerSlotAmount),
-                SlotDose(id = "t2", time = "13:00", label = "中", amount = defaultPerSlotAmount),
-                SlotDose(id = "t3", time = "20:00", label = "晚", amount = defaultPerSlotAmount)
-            )
-        }
-        val duration = stepDurationValue.coerceAtLeast(1)
-
-        return when (mode) {
-            PatternMode.PER_STEP_DOSE -> numbers.mapIndexed { idx, value ->
-                val slots = if (value <= 0.0) {
-                    emptyList()
-                } else {
-                    baseTimes.mapIndexed { slotIdx, t ->
-                        t.copy(id = "s${idx}_$slotIdx", amount = value)
-                    }
-                }
-                PlanStage(
-                    name = if (value <= 0.0) "休息阶段" else "阶段 ${idx + 1}",
-                    durationValue = duration,
-                    durationUnit = stepDurationUnit,
-                    slots = slots
-                )
-            }
-
-            PatternMode.PER_STEP_FREQUENCY -> numbers.mapIndexed { idx, value ->
-                val count = value.toInt().coerceAtLeast(0)
-                val slots = baseTimes.take(count).mapIndexed { slotIdx, t ->
-                    t.copy(
-                        id = "s${idx}_$slotIdx",
-                        amount = if (t.amount > 0.0) t.amount else defaultPerSlotAmount
-                    )
-                }
-                PlanStage(
-                    name = if (count == 0) "休息阶段" else "每日 $count 次",
-                    durationValue = duration,
-                    durationUnit = stepDurationUnit,
-                    slots = slots
-                )
-            }
-
-            PatternMode.WITHIN_DAY_SLOTS -> {
-                val defaultTimes = listOf("08:00" to "早", "12:30" to "中", "18:30" to "晚", "22:00" to "睡前")
-                val slots = numbers.mapIndexed { idx, value ->
-                    val existing = templateTimes.getOrNull(idx)
-                    val fallback = defaultTimes.getOrElse(idx) {
-                        val hour = (8 + idx * 3).coerceAtMost(23)
-                        String.format("%02d:00", hour) to "时段${idx + 1}"
-                    }
-                    SlotDose(
-                        id = "d_$idx",
-                        time = existing?.time ?: fallback.first,
-                        label = existing?.label?.ifBlank { fallback.second } ?: fallback.second,
-                        amount = value
-                    )
-                }
-                listOf(
-                    PlanStage(
-                        name = "单日循环",
-                        durationValue = duration,
-                        durationUnit = stepDurationUnit,
-                        slots = slots
-                    )
-                )
-            }
         }
     }
 }

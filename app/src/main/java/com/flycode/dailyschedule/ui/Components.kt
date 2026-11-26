@@ -1,5 +1,6 @@
 package com.flycode.dailyschedule.ui
 
+import android.app.TimePickerDialog
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -8,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,19 +22,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,6 +55,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 
 private val timeStampFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -89,6 +97,7 @@ fun DayScheduleSection(
     resolvedPlans: List<ResolvedDayPlan>,
     checkIns: Map<String, CheckInRecord>,
     onToggleSlot: (planId: String, date: LocalDate, slotId: String) -> Unit,
+    onAdjustDay: (ResolvedDayPlan) -> Unit,
     onEditPlan: (String) -> Unit,
     onCreatePlan: () -> Unit,
     emptyTitle: String = "暂无安排",
@@ -138,6 +147,7 @@ fun DayScheduleSection(
                 resolved = resolved,
                 checkIns = checkIns,
                 onToggleSlot = onToggleSlot,
+                onAdjustDay = { onAdjustDay(resolved) },
                 onEditPlan = { onEditPlan(resolved.plan.id) }
             )
         }
@@ -162,8 +172,8 @@ fun DayScheduleSection(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onEditPlan(resolved.plan.id) }
-                                .padding(vertical = 2.dp),
+                                .clickable { onAdjustDay(resolved) }
+                                .padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
@@ -179,10 +189,14 @@ fun DayScheduleSection(
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.weight(1f)
                             )
+                            if (resolved.isOverridden) {
+                                StagePill(text = "已调", color = MaterialTheme.colorScheme.secondary)
+                                Spacer(Modifier.width(6.dp))
+                            }
                             Text(
-                                text = "阶段 ${resolved.stageIndex + 1}/${resolved.totalStages} · 第${resolved.dayInStage}/${resolved.stageTotalDays}天",
+                                text = "调整",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -197,6 +211,7 @@ fun PlanDayCard(
     resolved: ResolvedDayPlan,
     checkIns: Map<String, CheckInRecord>,
     onToggleSlot: (planId: String, date: LocalDate, slotId: String) -> Unit,
+    onAdjustDay: () -> Unit,
     onEditPlan: () -> Unit
 ) {
     val accent = planAccentColor(resolved.plan.colorIndex)
@@ -215,7 +230,12 @@ fun PlanDayCard(
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onEditPlan),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Box(
                     modifier = Modifier
                         .width(4.dp)
@@ -227,7 +247,7 @@ fun PlanDayCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
                             text = resolved.plan.title,
@@ -236,7 +256,9 @@ fun PlanDayCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (resolved.plan.repeatCycle && resolved.cycleNumber > 1) {
+                        if (resolved.isOverridden) {
+                            StagePill(text = "已调", color = MaterialTheme.colorScheme.secondary)
+                        } else if (resolved.plan.repeatCycle && resolved.cycleNumber > 1) {
                             StagePill(text = "第${resolved.cycleNumber}轮", color = accent)
                         }
                     }
@@ -258,20 +280,18 @@ fun PlanDayCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                TextButton(
+                    onClick = onAdjustDay,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text("调本日", style = MaterialTheme.typography.labelMedium)
+                }
                 Text(
                     text = "$doneCount/${resolved.activeSlots.size}",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = if (allDone) accent else MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                IconButton(onClick = onEditPlan, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        imageVector = Icons.Rounded.Edit,
-                        contentDescription = "编辑",
-                        modifier = Modifier.size(17.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
 
             Spacer(Modifier.height(12.dp))
@@ -290,6 +310,134 @@ fun PlanDayCard(
             }
         }
     }
+}
+
+@Composable
+fun DayOverrideDialog(
+    resolved: ResolvedDayPlan,
+    onDismiss: () -> Unit,
+    onSaveOverride: (List<SlotDose>?) -> Unit,
+    onEditFullPlan: () -> Unit
+) {
+    val context = LocalContext.current
+    val baseTemplate = remember(resolved) {
+        resolved.activeSlots.ifEmpty {
+            resolved.stage.slots.ifEmpty {
+                resolved.plan.stages.firstOrNull { it.slots.isNotEmpty() }?.slots
+                    ?: listOf(
+                        SlotDose(id = UUID.randomUUID().toString().take(8), time = "08:00", amount = 1.0),
+                        SlotDose(id = UUID.randomUUID().toString().take(8), time = "13:00", amount = 1.0),
+                        SlotDose(id = UUID.randomUUID().toString().take(8), time = "20:00", amount = 1.0)
+                    )
+            }
+        }
+    }
+
+    var workingSlots by remember(resolved) {
+        mutableStateOf(
+            if (resolved.isRestDay) {
+                baseTemplate.map { it.copy(amount = 0.0) }
+            } else {
+                resolved.activeSlots.map { it.copy() }
+            }
+        )
+    }
+
+    val uniformAmount = remember(workingSlots) {
+        val positive = workingSlots.filter { it.amount > 0.0 }
+        if (positive.isEmpty()) 0.0 else positive.maxOf { it.amount }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    text = "调整 ${resolved.date.monthValue}月${resolved.date.dayOfMonth}日",
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = resolved.plan.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("统一数量", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    AmountStepper(
+                        amount = uniformAmount,
+                        unit = resolved.plan.unit,
+                        zeroLabel = "休息",
+                        onChange = { next ->
+                            workingSlots = workingSlots.map { it.copy(amount = next) }
+                        }
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+
+                workingSlots.forEachIndexed { idx, slot ->
+                    SlotStepperRow(
+                        time = slot.time,
+                        amount = slot.amount,
+                        unit = resolved.plan.unit,
+                        onPickTime = {
+                            TimePickerDialog(
+                                context,
+                                { _, h, m ->
+                                    val newTime = String.format("%02d:%02d", h, m)
+                                    workingSlots = workingSlots.mapIndexed { i, s ->
+                                        if (i == idx) s.copy(time = newTime) else s
+                                    }.sortedBy { it.parsedTime }
+                                },
+                                slot.parsedTime.hour,
+                                slot.parsedTime.minute,
+                                true
+                            ).show()
+                        },
+                        onChangeAmount = { next ->
+                            workingSlots = workingSlots.mapIndexed { i, s ->
+                                if (i == idx) s.copy(amount = next) else s
+                            }
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    TextButton(onClick = onEditFullPlan) {
+                        Text("编辑总计划")
+                    }
+                    if (resolved.isOverridden) {
+                        TextButton(onClick = { onSaveOverride(null) }) {
+                            Text("恢复默认")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val active = workingSlots.filter { it.amount > 0.0 }
+                onSaveOverride(active)
+            }) {
+                Text("保存本日")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }
 
 @Composable

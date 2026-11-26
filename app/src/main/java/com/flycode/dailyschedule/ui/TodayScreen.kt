@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.flycode.dailyschedule.model.AppState
+import com.flycode.dailyschedule.model.ResolvedDayPlan
 import com.flycode.dailyschedule.model.ScheduleEngine
 import com.flycode.dailyschedule.model.checkInKey
 import java.time.LocalDate
@@ -51,6 +52,7 @@ fun TodayScreen(
     onRequestNotificationPermission: () -> Unit,
     onRequestExactAlarmPermission: () -> Unit,
     onToggleSlot: (planId: String, date: LocalDate, slotId: String) -> Unit,
+    onAdjustDay: (ResolvedDayPlan) -> Unit,
     onEditPlan: (String) -> Unit,
     onCreatePlan: () -> Unit
 ) {
@@ -162,6 +164,7 @@ fun TodayScreen(
                 resolvedPlans = resolvedPlans,
                 checkIns = state.checkIns,
                 onToggleSlot = onToggleSlot,
+                onAdjustDay = onAdjustDay,
                 onEditPlan = onEditPlan,
                 onCreatePlan = onCreatePlan,
                 emptyTitle = if (state.plans.isEmpty()) "暂无计划" else "当天暂无安排",

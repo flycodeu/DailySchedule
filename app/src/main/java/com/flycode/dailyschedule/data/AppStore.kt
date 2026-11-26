@@ -86,6 +86,32 @@ object AppStore {
         }
     }
 
+    fun setDayOverride(
+        context: Context,
+        planId: String,
+        date: LocalDate,
+        slots: List<SlotDose>?
+    ) {
+        val dateIso = date.toString()
+        update(context) { current ->
+            current.copy(
+                plans = current.plans.map { plan ->
+                    if (plan.id != planId) {
+                        plan
+                    } else {
+                        val nextOverrides = plan.dayOverrides.toMutableMap()
+                        if (slots == null) {
+                            nextOverrides.remove(dateIso)
+                        } else {
+                            nextOverrides[dateIso] = slots
+                        }
+                        plan.copy(dayOverrides = nextOverrides)
+                    }
+                }
+            )
+        }
+    }
+
     fun setCheckIn(
         context: Context,
         planId: String,
@@ -237,19 +263,35 @@ object AppStore {
                     put("durationValue", stage.durationValue)
                     put("durationUnit", stage.durationUnit.name)
                     put("slots", JSONArray().apply {
-                        stage.slots.forEach { slot ->
-                            put(JSONObject().apply {
-                                put("id", slot.id)
-                                put("time", slot.time)
-                                put("label", slot.label)
-                                put("amount", slot.amount)
-                            })
-                        }
+                        stage.slots.forEach { slot -> put(slotToJson(slot)) }
                     })
                 })
             }
         })
+        if (plan.dayOverrides.isNotEmpty()) {
+            put("dayOverrides", JSONObject().apply {
+                plan.dayOverrides.forEach { (dateIso, slots) ->
+                    put(dateIso, JSONArray().apply {
+                        slots.forEach { put(slotToJson(it)) }
+                    })
+                }
+            })
+        }
     }
+
+    private fun slotToJson(slot: SlotDose): JSONObject = JSONObject().apply {
+        put("id", slot.id)
+        put("time", slot.time)
+        put("label", slot.label)
+        put("amount", slot.amount)
+    }
+
+    private fun slotFromJson(sl: JSONObject): SlotDose = SlotDose(
+        id = sl.getString("id"),
+        time = sl.getString("time"),
+        label = sl.optString("label", ""),
+        amount = sl.optDouble("amount", 1.0)
+    )
 
     private fun planFromJson(obj: JSONObject): PlanItem {
         val stagesArr = obj.optJSONArray("stages") ?: JSONArray()
@@ -259,15 +301,7 @@ object AppStore {
                 val slotsArr = sObj.optJSONArray("slots") ?: JSONArray()
                 val slots = buildList {
                     for (j in 0 until slotsArr.length()) {
-                        val sl = slotsArr.getJSONObject(j)
-                        add(
-                            SlotDose(
-                                id = sl.getString("id"),
-                                time = sl.getString("time"),
-                                label = sl.optString("label", ""),
-                                amount = sl.optDouble("amount", 1.0)
-                            )
-                        )
+                        add(slotFromJson(slotsArr.getJSONObject(j)))
                     }
                 }
                 val unitName = sObj.optString("durationUnit", DurationUnit.DAY.name)
@@ -283,6 +317,22 @@ object AppStore {
                 )
             }
         }
+        val overridesObj = obj.optJSONObject("dayOverrides")
+        val dayOverrides = buildMap {
+            if (overridesObj != null) {
+                val keys = overridesObj.keys()
+                while (keys.hasNext()) {
+                    val dateKey = keys.next()
+                    val arr = overridesObj.optJSONArray(dateKey) ?: JSONArray()
+                    val slots = buildList {
+                        for (j in 0 until arr.length()) {
+                            add(slotFromJson(arr.getJSONObject(j)))
+                        }
+                    }
+                    put(dateKey, slots)
+                }
+            }
+        }
         return PlanItem(
             id = obj.getString("id"),
             title = obj.getString("title"),
@@ -293,7 +343,8 @@ object AppStore {
                 .getOrDefault(LocalDate.now()),
             repeatCycle = obj.optBoolean("repeatCycle", false),
             active = obj.optBoolean("active", true),
-            stages = stages
+            stages = stages,
+            dayOverrides = dayOverrides
         )
     }
 }

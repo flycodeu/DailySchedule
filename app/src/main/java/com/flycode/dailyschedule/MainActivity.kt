@@ -54,10 +54,12 @@ import androidx.core.content.ContextCompat
 import com.flycode.dailyschedule.alarm.ReminderManager
 import com.flycode.dailyschedule.data.AppStore
 import com.flycode.dailyschedule.model.PlanItem
+import com.flycode.dailyschedule.model.ResolvedDayPlan
 import com.flycode.dailyschedule.ui.CalendarScreen
-import com.flycode.dailyschedule.ui.PlanEditorDialog
+import com.flycode.dailyschedule.ui.DayOverrideDialog
+import com.flycode.dailyschedule.ui.PlanEditorScreen
 import com.flycode.dailyschedule.ui.PlansScreen
-import com.flycode.dailyschedule.ui.SettingsDialog
+import com.flycode.dailyschedule.ui.SettingsScreen
 import com.flycode.dailyschedule.ui.TodayScreen
 import com.flycode.dailyschedule.ui.UpdateDialog
 import com.flycode.dailyschedule.ui.theme.DailyScheduleTheme
@@ -134,6 +136,7 @@ private fun DailyScheduleApp(
     var editingPlan by remember { mutableStateOf<PlanItem?>(null) }
     var showEditor by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var adjustingDay by remember { mutableStateOf<ResolvedDayPlan?>(null) }
 
     var latestRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
@@ -223,6 +226,51 @@ private fun DailyScheduleApp(
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         }
+    }
+
+    if (showEditor) {
+        PlanEditorScreen(
+            initialPlan = editingPlan,
+            onDismiss = { showEditor = false },
+            onSave = { plan ->
+                AppStore.upsertPlan(context, plan)
+                ReminderManager.rescheduleAll(context)
+                showEditor = false
+            },
+            onDelete = { planId ->
+                AppStore.deletePlan(context, planId)
+                ReminderManager.rescheduleAll(context)
+                showEditor = false
+            }
+        )
+        return
+    }
+
+    if (showSettings) {
+        SettingsScreen(
+            state = state,
+            latestRelease = latestRelease,
+            isCheckingUpdate = isCheckingUpdate,
+            updateStatusText = updateStatusText,
+            hasNotificationPermission = hasNotificationPermission,
+            hasExactAlarmPermission = hasExactAlarmPermission,
+            onDismiss = { showSettings = false },
+            onCheckUpdate = { triggerUpdateCheck(manual = true) },
+            onOpenUpdateDialog = {
+                showSettings = false
+                showUpdateDialog = true
+            },
+            onUpdateSettings = { transform ->
+                AppStore.updateSettings(context, transform)
+                GitHubUpdater.schedulePeriodicCheck(context)
+            },
+            onRequestNotificationPermission = requestNotificationPermission,
+            onRequestExactAlarmPermission = requestExactAlarmPermission,
+            onImportedData = {
+                ReminderManager.rescheduleAll(context)
+            }
+        )
+        return
     }
 
     Scaffold(
@@ -317,6 +365,7 @@ private fun DailyScheduleApp(
                         AppStore.toggleCheckIn(context, planId, date, slotId)
                         ReminderManager.rescheduleAll(context)
                     },
+                    onAdjustDay = { adjustingDay = it },
                     onEditPlan = { planId ->
                         editingPlan = state.plans.firstOrNull { it.id == planId }
                         if (editingPlan != null) showEditor = true
@@ -335,6 +384,7 @@ private fun DailyScheduleApp(
                         AppStore.toggleCheckIn(context, planId, date, slotId)
                         ReminderManager.rescheduleAll(context)
                     },
+                    onAdjustDay = { adjustingDay = it },
                     onEditPlan = { planId ->
                         editingPlan = state.plans.firstOrNull { it.id == planId }
                         if (editingPlan != null) showEditor = true
@@ -364,45 +414,19 @@ private fun DailyScheduleApp(
         }
     }
 
-    if (showEditor) {
-        PlanEditorDialog(
-            initialPlan = editingPlan,
-            onDismiss = { showEditor = false },
-            onSave = { plan ->
-                AppStore.upsertPlan(context, plan)
+    adjustingDay?.let { target ->
+        DayOverrideDialog(
+            resolved = target,
+            onDismiss = { adjustingDay = null },
+            onSaveOverride = { slots ->
+                AppStore.setDayOverride(context, target.plan.id, target.date, slots)
                 ReminderManager.rescheduleAll(context)
-                showEditor = false
+                adjustingDay = null
             },
-            onDelete = { planId ->
-                AppStore.deletePlan(context, planId)
-                ReminderManager.rescheduleAll(context)
-                showEditor = false
-            }
-        )
-    }
-
-    if (showSettings) {
-        SettingsDialog(
-            state = state,
-            latestRelease = latestRelease,
-            isCheckingUpdate = isCheckingUpdate,
-            updateStatusText = updateStatusText,
-            hasNotificationPermission = hasNotificationPermission,
-            hasExactAlarmPermission = hasExactAlarmPermission,
-            onDismiss = { showSettings = false },
-            onCheckUpdate = { triggerUpdateCheck(manual = true) },
-            onOpenUpdateDialog = {
-                showSettings = false
-                showUpdateDialog = true
-            },
-            onUpdateSettings = { transform ->
-                AppStore.updateSettings(context, transform)
-                GitHubUpdater.schedulePeriodicCheck(context)
-            },
-            onRequestNotificationPermission = requestNotificationPermission,
-            onRequestExactAlarmPermission = requestExactAlarmPermission,
-            onImportedData = {
-                ReminderManager.rescheduleAll(context)
+            onEditFullPlan = {
+                editingPlan = state.plans.firstOrNull { it.id == target.plan.id }
+                adjustingDay = null
+                if (editingPlan != null) showEditor = true
             }
         )
     }

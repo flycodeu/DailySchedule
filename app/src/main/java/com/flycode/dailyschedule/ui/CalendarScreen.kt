@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.flycode.dailyschedule.model.AppState
+import com.flycode.dailyschedule.model.ResolvedDayPlan
 import com.flycode.dailyschedule.model.ScheduleEngine
 import com.flycode.dailyschedule.model.checkInKey
 import java.time.LocalDate
@@ -61,6 +62,7 @@ fun CalendarScreen(
     selectedDate: LocalDate,
     onSelectDate: (LocalDate) -> Unit,
     onToggleSlot: (planId: String, date: LocalDate, slotId: String) -> Unit,
+    onAdjustDay: (ResolvedDayPlan) -> Unit,
     onEditPlan: (String) -> Unit,
     onCreatePlan: () -> Unit
 ) {
@@ -214,6 +216,7 @@ fun CalendarScreen(
                 resolvedPlans = selectedResolved,
                 checkIns = state.checkIns,
                 onToggleSlot = onToggleSlot,
+                onAdjustDay = onAdjustDay,
                 onEditPlan = onEditPlan,
                 onCreatePlan = onCreatePlan,
                 emptyTitle = "暂无安排",
