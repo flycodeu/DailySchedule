@@ -84,9 +84,9 @@ fun TodayScreen(
             item {
                 PermissionBanner(
                     icon = Icons.Rounded.Notifications,
-                    title = "需要开启通知权限",
-                    subtitle = "用于按每个阶段的时间点准时提醒与快捷确认",
-                    actionText = "去授权",
+                    title = "开启通知权限",
+                    subtitle = "用于按时推送提醒与快捷打卡",
+                    actionText = "授权",
                     onAction = onRequestNotificationPermission
                 )
             }
@@ -94,9 +94,9 @@ fun TodayScreen(
             item {
                 PermissionBanner(
                     icon = Icons.Rounded.Warning,
-                    title = "建议开启精确闹钟权限",
-                    subtitle = "避免系统省电策略延迟每日定时提醒",
-                    actionText = "去开启",
+                    title = "开启精确闹钟",
+                    subtitle = "避免系统延迟定时提醒",
+                    actionText = "设置",
                     onAction = onRequestExactAlarmPermission
                 )
             }
@@ -164,8 +164,8 @@ fun TodayScreen(
                 onToggleSlot = onToggleSlot,
                 onEditPlan = onEditPlan,
                 onCreatePlan = onCreatePlan,
-                emptyTitle = if (state.plans.isEmpty()) "还没有创建任何计划" else "当天没有待执行项目",
-                emptySubtitle = if (state.plans.isEmpty()) "支持每日多次、阶段递减 (如 2,2,2,2,0) 及数月长周期" else "可在日历中查看未来阶段或新建计划"
+                emptyTitle = if (state.plans.isEmpty()) "暂无计划" else "当天暂无安排",
+                emptySubtitle = ""
             )
         }
     }

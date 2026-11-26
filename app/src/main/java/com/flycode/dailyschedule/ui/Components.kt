@@ -91,8 +91,8 @@ fun DayScheduleSection(
     onToggleSlot: (planId: String, date: LocalDate, slotId: String) -> Unit,
     onEditPlan: (String) -> Unit,
     onCreatePlan: () -> Unit,
-    emptyTitle: String = "当天暂无安排",
-    emptySubtitle: String = "点击下方按钮新建阶段计划"
+    emptyTitle: String = "暂无安排",
+    emptySubtitle: String = ""
 ) {
     val activePlans = resolvedPlans.filter { !it.isRestDay }
     val restPlans = resolvedPlans.filter { it.isRestDay }
@@ -113,12 +113,14 @@ fun DayScheduleSection(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = emptySubtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (emptySubtitle.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = emptySubtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Spacer(Modifier.height(14.dp))
                 Button(onClick = onCreatePlan) {
                     Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -151,7 +153,7 @@ fun DayScheduleSection(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "今日休整 / 停用阶段 (0)",
+                        text = "今日休息 (0)",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium
@@ -239,10 +241,11 @@ fun PlanDayCard(
                         }
                     }
                     Spacer(Modifier.height(2.dp))
-                    val stageName = resolved.stage.name.ifBlank { "阶段 ${resolved.stageIndex + 1}" }
                     val subtitle = buildString {
-                        append("$stageName (${resolved.stageIndex + 1}/${resolved.totalStages})")
-                        append(" · 第${resolved.dayInStage}/${resolved.stageTotalDays}天")
+                        if (resolved.totalStages > 1) {
+                            append("阶段 ${resolved.stageIndex + 1}/${resolved.totalStages} · ")
+                        }
+                        append("第${resolved.dayInStage}/${resolved.stageTotalDays}天")
                         if (resolved.plan.note.isNotBlank()) {
                             append(" · ${resolved.plan.note}")
                         }

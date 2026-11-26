@@ -25,9 +25,11 @@ import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -55,6 +57,7 @@ import com.flycode.dailyschedule.model.PlanItem
 import com.flycode.dailyschedule.ui.CalendarScreen
 import com.flycode.dailyschedule.ui.PlanEditorDialog
 import com.flycode.dailyschedule.ui.PlansScreen
+import com.flycode.dailyschedule.ui.SettingsDialog
 import com.flycode.dailyschedule.ui.TodayScreen
 import com.flycode.dailyschedule.ui.UpdateDialog
 import com.flycode.dailyschedule.ui.theme.DailyScheduleTheme
@@ -130,6 +133,7 @@ private fun DailyScheduleApp(
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var editingPlan by remember { mutableStateOf<PlanItem?>(null) }
     var showEditor by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     var latestRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
@@ -227,7 +231,14 @@ private fun DailyScheduleApp(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("日常计划", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = when (currentTab) {
+                                MainTab.TODAY -> "日常计划"
+                                MainTab.CALENDAR -> "日历"
+                                MainTab.PLANS -> "全部计划"
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
                         if (latestRelease != null) {
                             Spacer(Modifier.width(8.dp))
                             Surface(
@@ -245,21 +256,27 @@ private fun DailyScheduleApp(
                             }
                         }
                     }
+                },
+                actions = {
+                    IconButton(onClick = {
+                        refreshPermissions()
+                        showSettings = true
+                    }) {
+                        Icon(Icons.Rounded.Settings, contentDescription = "设置")
+                    }
                 }
             )
         },
         floatingActionButton = {
-            if (currentTab != MainTab.PLANS) {
-                FloatingActionButton(
-                    onClick = {
-                        editingPlan = null
-                        showEditor = true
-                    },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ) {
-                    Icon(Icons.Rounded.Add, contentDescription = "新建计划")
-                }
+            FloatingActionButton(
+                onClick = {
+                    editingPlan = null
+                    showEditor = true
+                },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Icon(Icons.Rounded.Add, contentDescription = "新建计划")
             }
         },
         bottomBar = {
@@ -330,11 +347,6 @@ private fun DailyScheduleApp(
 
                 MainTab.PLANS -> PlansScreen(
                     state = state,
-                    latestRelease = latestRelease,
-                    isCheckingUpdate = isCheckingUpdate,
-                    updateStatusText = updateStatusText,
-                    hasNotificationPermission = hasNotificationPermission,
-                    hasExactAlarmPermission = hasExactAlarmPermission,
                     onCreatePlan = {
                         editingPlan = null
                         showEditor = true
@@ -345,21 +357,6 @@ private fun DailyScheduleApp(
                     },
                     onTogglePlanActive = { planId ->
                         AppStore.togglePlanActive(context, planId)
-                        ReminderManager.rescheduleAll(context)
-                    },
-                    onDeletePlan = { planId ->
-                        AppStore.deletePlan(context, planId)
-                        ReminderManager.rescheduleAll(context)
-                    },
-                    onCheckUpdate = { triggerUpdateCheck(manual = true) },
-                    onOpenUpdateDialog = { showUpdateDialog = true },
-                    onUpdateSettings = { transform ->
-                        AppStore.updateSettings(context, transform)
-                        GitHubUpdater.schedulePeriodicCheck(context)
-                    },
-                    onRequestNotificationPermission = requestNotificationPermission,
-                    onRequestExactAlarmPermission = requestExactAlarmPermission,
-                    onImportedData = {
                         ReminderManager.rescheduleAll(context)
                     }
                 )
@@ -375,6 +372,37 @@ private fun DailyScheduleApp(
                 AppStore.upsertPlan(context, plan)
                 ReminderManager.rescheduleAll(context)
                 showEditor = false
+            },
+            onDelete = { planId ->
+                AppStore.deletePlan(context, planId)
+                ReminderManager.rescheduleAll(context)
+                showEditor = false
+            }
+        )
+    }
+
+    if (showSettings) {
+        SettingsDialog(
+            state = state,
+            latestRelease = latestRelease,
+            isCheckingUpdate = isCheckingUpdate,
+            updateStatusText = updateStatusText,
+            hasNotificationPermission = hasNotificationPermission,
+            hasExactAlarmPermission = hasExactAlarmPermission,
+            onDismiss = { showSettings = false },
+            onCheckUpdate = { triggerUpdateCheck(manual = true) },
+            onOpenUpdateDialog = {
+                showSettings = false
+                showUpdateDialog = true
+            },
+            onUpdateSettings = { transform ->
+                AppStore.updateSettings(context, transform)
+                GitHubUpdater.schedulePeriodicCheck(context)
+            },
+            onRequestNotificationPermission = requestNotificationPermission,
+            onRequestExactAlarmPermission = requestExactAlarmPermission,
+            onImportedData = {
+                ReminderManager.rescheduleAll(context)
             }
         )
     }

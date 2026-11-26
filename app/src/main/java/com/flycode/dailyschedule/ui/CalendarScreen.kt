@@ -216,8 +216,8 @@ fun CalendarScreen(
                 onToggleSlot = onToggleSlot,
                 onEditPlan = onEditPlan,
                 onCreatePlan = onCreatePlan,
-                emptyTitle = "该日期暂无安排",
-                emptySubtitle = "未在任何启用计划的阶段周期内"
+                emptyTitle = "暂无安排",
+                emptySubtitle = ""
             )
         }
     }
