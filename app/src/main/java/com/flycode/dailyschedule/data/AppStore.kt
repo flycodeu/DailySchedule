@@ -147,12 +147,16 @@ object AppStore {
 
     private fun persistLocked(data: AppState) {
         val ctx = appContext ?: return
-        val file = File(ctx.filesDir, FILE_NAME)
-        val tmp = File(ctx.filesDir, "$FILE_NAME.tmp")
-        tmp.writeText(toJson(data).toString())
-        if (!tmp.renameTo(file)) {
-            file.writeText(tmp.readText())
-            tmp.delete()
+        runCatching {
+            val dir = ctx.filesDir
+            if (!dir.exists()) dir.mkdirs()
+            val file = File(dir, FILE_NAME)
+            val tmp = File(dir, "$FILE_NAME.tmp")
+            tmp.writeText(toJson(data).toString())
+            if (!tmp.renameTo(file)) {
+                file.writeText(tmp.readText())
+                tmp.delete()
+            }
         }
     }
 

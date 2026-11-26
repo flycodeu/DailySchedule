@@ -77,12 +77,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        AppStore.init(this)
-        ReminderManager.ensureChannels(this)
-        ReminderManager.rescheduleAll(this)
-        GitHubUpdater.schedulePeriodicCheck(this)
-        handleIntentExtras(intent)
+        runCatching { enableEdgeToEdge() }
+        runCatching { AppStore.init(this) }
+        runCatching { ReminderManager.ensureChannels(this) }
+        runCatching { ReminderManager.rescheduleAll(this) }
+        runCatching { GitHubUpdater.schedulePeriodicCheck(this) }
+        runCatching { handleIntentExtras(intent) }
 
         setContent {
             DailyScheduleTheme {

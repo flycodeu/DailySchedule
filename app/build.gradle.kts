@@ -25,13 +25,13 @@ val githubRepoSlug: String = (project.findProperty("githubRepo") as String?)
 
 android {
     namespace = "com.flycode.dailyschedule"
-    compileSdk = 34
-    buildToolsVersion = "34.0.0"
+    compileSdk = 36
+    buildToolsVersion = "35.0.0"
 
     defaultConfig {
         applicationId = "com.flycode.dailyschedule"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = appVersionCode
         versionName = appVersionName
 
@@ -53,12 +53,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.findByName("release")
                 ?: signingConfigs.getByName("debug")
         }
@@ -83,6 +79,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -90,11 +89,12 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    val composeBom = platform("androidx.compose:compose-bom:2025.02.00")
     implementation(composeBom)
 
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")

@@ -68,13 +68,19 @@ object ReminderManager {
     fun canScheduleExact(context: Context): Boolean {
         val am = context.getSystemService(AlarmManager::class.java) ?: return false
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            am.canScheduleExactAlarms()
+            runCatching { am.canScheduleExactAlarms() }.getOrDefault(false)
         } else {
             true
         }
     }
 
     fun rescheduleAll(context: Context) {
+        runCatching {
+            rescheduleAllInternal(context)
+        }
+    }
+
+    private fun rescheduleAllInternal(context: Context) {
         ensureChannels(context)
         val appContext = context.applicationContext
         val alarmManager = appContext.getSystemService(AlarmManager::class.java) ?: return
@@ -184,18 +190,25 @@ object ReminderManager {
         pendingIntent: PendingIntent,
         context: Context
     ) {
-        if (canScheduleExact(context)) {
-            alarmManager.setExactAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                triggerMillis,
-                pendingIntent
-            )
+        val scheduledExact = if (canScheduleExact(context)) {
+            runCatching {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerMillis,
+                    pendingIntent
+                )
+            }.isSuccess
         } else {
-            alarmManager.setAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                triggerMillis,
-                pendingIntent
-            )
+            false
+        }
+        if (!scheduledExact) {
+            runCatching {
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerMillis,
+                    pendingIntent
+                )
+            }
         }
     }
 
