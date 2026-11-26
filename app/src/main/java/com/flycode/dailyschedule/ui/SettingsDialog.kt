@@ -64,6 +64,7 @@ import com.flycode.dailyschedule.update.ReleaseInfo
 @Composable
 fun SettingsScreen(
     state: AppState,
+    showHiddenPlans: Boolean,
     latestRelease: ReleaseInfo?,
     recentReleases: List<ReleaseInfo>,
     isCheckingUpdate: Boolean,
@@ -71,6 +72,7 @@ fun SettingsScreen(
     hasNotificationPermission: Boolean,
     hasExactAlarmPermission: Boolean,
     onDismiss: () -> Unit,
+    onToggleShowHidden: (Boolean) -> Unit,
     onCheckUpdate: () -> Unit,
     onOpenUpdateDialog: () -> Unit,
     onOpenChangelog: () -> Unit,
@@ -84,8 +86,10 @@ fun SettingsScreen(
     val context = LocalContext.current
     var showAdvancedRepo by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
+    var showPinDialog by remember { mutableStateOf(false) }
     var repoDraft by remember(state.settings.githubRepo) { mutableStateOf(state.settings.githubRepo) }
     var mirrorDraft by remember(state.settings.githubMirrorPrefix) { mutableStateOf(state.settings.githubMirrorPrefix) }
+    val hiddenCount = remember(state.plans) { state.plans.count { it.hidden } }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -110,6 +114,155 @@ fun SettingsScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item {
+                Text(
+                    text = "隐私设置",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (hiddenCount > 0) "显示隐藏计划（$hiddenCount 项）" else "显示隐藏计划",
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    text = "长按首页标题「日常计划」也可快速切换",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = showHiddenPlans,
+                                onCheckedChange = onToggleShowHidden
+                            )
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showPinDialog = true }
+                                .padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("隐私访问密码", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = if (state.settings.hasPrivacyPin) "已启用 4 位数字密码保护" else "未设置（点击设置）",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                text = if (state.settings.hasPrivacyPin) "修改" else "设置",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        if (state.settings.hasPrivacyPin) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "启动应用需要密码",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Switch(
+                                    checked = state.settings.appLockEnabled,
+                                    onCheckedChange = { enabled ->
+                                        onUpdateSettings { it.copy(appLockEnabled = enabled) }
+                                    }
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "切后台自动重新隐藏",
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Switch(
+                                checked = state.settings.autoRelockOnBackground,
+                                onCheckedChange = { enabled ->
+                                    onUpdateSettings { it.copy(autoRelockOnBackground = enabled) }
+                                }
+                            )
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("通知隐藏具体内容", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = "锁屏及通知栏仅显示通用提醒，隐藏计划名与数量",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = state.settings.privacyMaskNotifications,
+                                onCheckedChange = { enabled ->
+                                    onUpdateSettings { it.copy(privacyMaskNotifications = enabled) }
+                                }
+                            )
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("防截屏与多任务保护", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = "禁止截屏并在最近任务切换页隐藏预览画面",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = state.settings.blockScreenshots,
+                                onCheckedChange = { enabled ->
+                                    onUpdateSettings { it.copy(blockScreenshots = enabled) }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
             item {
                 Text(
                     text = "提醒与闹钟",
@@ -388,6 +541,24 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    if (showPinDialog) {
+        SetPinDialog(
+            hasExistingPin = state.settings.hasPrivacyPin,
+            currentPinHash = state.settings.privacyPinHash,
+            onDismiss = { showPinDialog = false },
+            onSavePinHash = { hash ->
+                onUpdateSettings { it.copy(privacyPinHash = hash) }
+                Toast.makeText(context, "隐私密码已保存", Toast.LENGTH_SHORT).show()
+                showPinDialog = false
+            },
+            onClearPin = {
+                onUpdateSettings { it.copy(privacyPinHash = "", appLockEnabled = false) }
+                Toast.makeText(context, "已关闭隐私密码", Toast.LENGTH_SHORT).show()
+                showPinDialog = false
+            }
+        )
     }
 
     if (showImportDialog) {

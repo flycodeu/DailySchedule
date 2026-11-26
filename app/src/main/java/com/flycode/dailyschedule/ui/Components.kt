@@ -259,6 +259,9 @@ fun PlanDayCard(
                             overflow = TextOverflow.Ellipsis
                         )
                         val isForeverDaily = resolved.totalStages == 1 && resolved.stageTotalDays == 1 && resolved.plan.repeatCycle
+                        if (resolved.plan.hidden) {
+                            StagePill(text = "隐私", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         if (resolved.isOverridden) {
                             StagePill(text = "已调", color = MaterialTheme.colorScheme.secondary)
                         } else if (!isForeverDaily && resolved.plan.repeatCycle && resolved.cycleNumber > 1) {

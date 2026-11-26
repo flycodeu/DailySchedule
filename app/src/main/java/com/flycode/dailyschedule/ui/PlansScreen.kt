@@ -117,13 +117,21 @@ private fun PlanSummaryCard(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Text(
-                    text = plan.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = plan.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (plan.hidden) {
+                        StagePill(text = "隐藏", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
 
                 val isForeverDaily = plan.stages.size == 1 && plan.repeatCycle && plan.stages[0].durationValue == 1
                 val periodText = when {

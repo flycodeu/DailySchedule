@@ -229,6 +229,11 @@ object AppStore {
             put("remindersEnabled", state.settings.remindersEnabled)
             put("hidePermissionPrompts", state.settings.hidePermissionPrompts)
             put("reminderLeadMinutes", state.settings.reminderLeadMinutes)
+            put("privacyPinHash", state.settings.privacyPinHash)
+            put("appLockEnabled", state.settings.appLockEnabled)
+            put("privacyMaskNotifications", state.settings.privacyMaskNotifications)
+            put("blockScreenshots", state.settings.blockScreenshots)
+            put("autoRelockOnBackground", state.settings.autoRelockOnBackground)
         })
     }
 
@@ -260,7 +265,12 @@ object AppStore {
             autoCheckUpdates = settingsObj.optBoolean("autoCheckUpdates", true),
             remindersEnabled = settingsObj.optBoolean("remindersEnabled", true),
             hidePermissionPrompts = settingsObj.optBoolean("hidePermissionPrompts", false),
-            reminderLeadMinutes = settingsObj.optInt("reminderLeadMinutes", 0)
+            reminderLeadMinutes = settingsObj.optInt("reminderLeadMinutes", 0),
+            privacyPinHash = settingsObj.optString("privacyPinHash", ""),
+            appLockEnabled = settingsObj.optBoolean("appLockEnabled", false),
+            privacyMaskNotifications = settingsObj.optBoolean("privacyMaskNotifications", false),
+            blockScreenshots = settingsObj.optBoolean("blockScreenshots", false),
+            autoRelockOnBackground = settingsObj.optBoolean("autoRelockOnBackground", true)
         )
         return AppState(plans = plans, checkIns = checkIns, settings = settings)
     }
@@ -274,6 +284,7 @@ object AppStore {
         put("startDate", plan.startDate.toString())
         put("repeatCycle", plan.repeatCycle)
         put("active", plan.active)
+        put("hidden", plan.hidden)
         put("stages", JSONArray().apply {
             plan.stages.forEach { stage ->
                 put(JSONObject().apply {
@@ -362,6 +373,7 @@ object AppStore {
                 .getOrDefault(LocalDate.now()),
             repeatCycle = obj.optBoolean("repeatCycle", false),
             active = obj.optBoolean("active", true),
+            hidden = obj.optBoolean("hidden", false),
             stages = stages,
             dayOverrides = dayOverrides
         )

@@ -1,3 +1,5 @@
 <resources>
-    <style name="Theme.DailySchedule" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.DailySchedule" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_bg_light</item>
+    </style>
 </resources>

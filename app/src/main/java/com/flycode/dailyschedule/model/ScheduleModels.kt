@@ -51,6 +51,7 @@ data class PlanItem(
     val startDate: LocalDate = LocalDate.now(),
     val repeatCycle: Boolean = false,
     val active: Boolean = true,
+    val hidden: Boolean = false,
     val stages: List<PlanStage> = emptyList(),
     val dayOverrides: Map<String, List<SlotDose>> = emptyMap()
 )
@@ -92,8 +93,15 @@ data class AppSettings(
     val autoCheckUpdates: Boolean = true,
     val remindersEnabled: Boolean = true,
     val hidePermissionPrompts: Boolean = false,
-    val reminderLeadMinutes: Int = 0
-)
+    val reminderLeadMinutes: Int = 0,
+    val privacyPinHash: String = "",
+    val appLockEnabled: Boolean = false,
+    val privacyMaskNotifications: Boolean = false,
+    val blockScreenshots: Boolean = false,
+    val autoRelockOnBackground: Boolean = true
+) {
+    val hasPrivacyPin: Boolean get() = privacyPinHash.isNotBlank()
+}
 
 data class AppState(
     val plans: List<PlanItem> = emptyList(),

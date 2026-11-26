@@ -282,16 +282,25 @@ class ReminderReceiver : BroadcastReceiver() {
                     val resolved = plan?.let { ScheduleEngine.resolveDay(it, date) }
                     val slot = resolved?.activeSlots?.firstOrNull { it.id == slotId }
                     if (plan != null && resolved != null && slot != null && nm != null) {
+                        val maskSensitive = state.settings.privacyMaskNotifications || plan.hidden
                         val amountText = ScheduleEngine.formatAmount(slot.amount)
-                        val title = "${plan.title} · $amountText${plan.unit}"
+                        val title = if (maskSensitive) {
+                            "日常计划提醒"
+                        } else {
+                            "${plan.title} · $amountText${plan.unit}"
+                        }
                         val slotPrefix = if (slot.label.isNotBlank()) "${slot.time} ${slot.label}" else slot.time
                         val stageLabel = "阶段 ${resolved.stageIndex + 1}/${resolved.totalStages} · 第${resolved.dayInStage}/${resolved.stageTotalDays}天"
-                        val body = buildString {
-                            append(slotPrefix)
-                            append(" · ")
-                            append(stageLabel)
-                            if (plan.note.isNotBlank()) {
-                                append("（").append(plan.note).append("）")
+                        val body = if (maskSensitive) {
+                            "${slot.time} · 有一项待确认安排"
+                        } else {
+                            buildString {
+                                append(slotPrefix)
+                                append(" · ")
+                                append(stageLabel)
+                                if (plan.note.isNotBlank()) {
+                                    append("（").append(plan.note).append("）")
+                                }
                             }
                         }
 
@@ -340,6 +349,10 @@ class ReminderReceiver : BroadcastReceiver() {
                             .setAutoCancel(true)
                             .setPriority(NotificationCompat.PRIORITY_HIGH)
                             .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                            .setVisibility(
+                                if (maskSensitive) NotificationCompat.VISIBILITY_PRIVATE
+                                else NotificationCompat.VISIBILITY_PUBLIC
+                            )
                             .addAction(0, "已确认打卡", confirmIntent)
                             .addAction(0, "延后15分", snoozeIntent)
                             .build()

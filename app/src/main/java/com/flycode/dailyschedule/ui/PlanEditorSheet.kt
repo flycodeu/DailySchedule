@@ -104,6 +104,7 @@ fun PlanEditorScreen(
     var customUnitMode by remember { mutableStateOf(initialPlan != null && initialPlan.unit !in PresetUnits) }
     var note by remember { mutableStateOf(initialPlan?.note ?: "") }
     var colorIndex by remember { mutableIntStateOf(initialPlan?.colorIndex ?: 0) }
+    var hidden by remember { mutableStateOf(initialPlan?.hidden ?: false) }
     var startDate by remember { mutableStateOf(initialPlan?.startDate ?: LocalDate.now()) }
     var repeatCycle by remember { mutableStateOf(initialPlan?.repeatCycle ?: true) }
 
@@ -264,6 +265,7 @@ fun PlanEditorScreen(
                                     startDate = startDate,
                                     repeatCycle = repeatCycle,
                                     active = initialPlan?.active ?: true,
+                                    hidden = hidden,
                                     stages = stagesToSave,
                                     dayOverrides = initialPlan?.dayOverrides ?: emptyMap()
                                 )
@@ -411,6 +413,25 @@ fun PlanEditorScreen(
                                     )
                                 }
                             }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("设为隐藏计划", style = MaterialTheme.typography.bodyLarge)
+                                if (hidden) {
+                                    Text(
+                                        text = "默认隐藏，长按首页标题或在设置中查看",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Switch(checked = hidden, onCheckedChange = { hidden = it })
                         }
                     }
                 }
