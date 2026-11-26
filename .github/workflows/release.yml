@@ -1,0 +1,81 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version tag (e.g. v1.0.1)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve version tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.version }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          CLEAN_VER="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "clean=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare signing keystore (optional secret)
+        id: signing
+        run: |
+          if [ -n "${{ secrets.SIGNING_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.SIGNING_KEYSTORE_BASE64 }}" | base64 -d > "${{ runner.temp }}/release.jks"
+            echo "keystore_path=${{ runner.temp }}/release.jks" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::SIGNING_KEYSTORE_BASE64 secret is not set; falling back to debug keystore. Configure signing secrets so future APK releases share the same signature for seamless updates."
+          fi
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+      - name: Build release APK
+        env:
+          SIGNING_KEYSTORE_PATH: ${{ steps.signing.outputs.keystore_path }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --no-daemon \
+            -PappVersionName="${{ steps.version.outputs.clean }}" \
+            -PgithubRepo="${{ github.repository }}"
+
+      - name: Rename release APK
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk \
+             "DailySchedule-${{ steps.version.outputs.tag }}.apk"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "DailySchedule ${{ steps.version.outputs.tag }}"
+          generate_release_notes: true
+          files: "DailySchedule-${{ steps.version.outputs.tag }}.apk"
