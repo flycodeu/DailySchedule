@@ -66,7 +66,7 @@ fun CalendarScreen(
     onEditPlan: (String) -> Unit,
     onCreatePlan: () -> Unit
 ) {
-    val today = LocalDate.now()
+    val today = remember { LocalDate.now() }
     var visibleMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
 
     val dayMarkers = remember(state.plans, state.checkIns, visibleMonth, today) {

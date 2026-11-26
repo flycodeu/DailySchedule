@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -33,7 +34,8 @@ data class ReleaseInfo(
     val tagName: String,
     val versionName: String,
     val title: String,
-    val body: String,
+    val publishedDate: String,
+    val changes: List<String>,
     val apkUrl: String?,
     val apkName: String?,
     val apkSizeBytes: Long,
@@ -41,8 +43,16 @@ data class ReleaseInfo(
 )
 
 sealed interface UpdateCheckResult {
-    data class UpdateAvailable(val release: ReleaseInfo) : UpdateCheckResult
-    data class UpToDate(val currentVersion: String) : UpdateCheckResult
+    data class UpdateAvailable(
+        val release: ReleaseInfo,
+        val pendingReleases: List<ReleaseInfo>
+    ) : UpdateCheckResult
+
+    data class UpToDate(
+        val currentVersion: String,
+        val recentReleases: List<ReleaseInfo>
+    ) : UpdateCheckResult
+
     data class Error(val message: String) : UpdateCheckResult
 }
 
@@ -88,11 +98,11 @@ object GitHubUpdater {
         val settings = AppStore.current(appContext).settings
         val repo = settings.githubRepo.trim().ifBlank { BuildConfig.GITHUB_REPO }
         if (!repo.contains("/")) {
-            return@withContext UpdateCheckResult.Error("GitHub 仓库格式应为 owner/repo")
+            return@withContext UpdateCheckResult.Error("仓库格式应为 owner/repo")
         }
 
         runCatching {
-            val apiUrl = "https://api.github.com/repos/$repo/releases/latest"
+            val apiUrl = "https://api.github.com/repos/$repo/releases?per_page=8"
             val conn = (URL(apiUrl).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 10_000
                 readTimeout = 10_000
@@ -112,64 +122,105 @@ object GitHubUpdater {
                 return@withContext UpdateCheckResult.Error("检查更新失败 (HTTP $code)")
             }
 
-            val json = JSONObject(text)
-            val tagName = json.optString("tag_name").trim()
-            val remoteVersion = tagName.removePrefix("v").removePrefix("V")
-            val assets = json.optJSONArray("assets")
-            var apkUrl: String? = null
-            var apkName: String? = null
-            var apkSize = 0L
-            if (assets != null) {
-                for (i in 0 until assets.length()) {
-                    val asset = assets.getJSONObject(i)
-                    val name = asset.optString("name")
-                    if (name.endsWith(".apk", ignoreCase = true)) {
-                        apkUrl = asset.optString("browser_download_url")
-                        apkName = name
-                        apkSize = asset.optLong("size", 0L)
-                        break
-                    }
+            val array = JSONArray(text)
+            val releases = buildList {
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    if (obj.optBoolean("draft") || obj.optBoolean("prerelease")) continue
+                    add(parseReleaseJson(obj))
                 }
-            }
+            }.sortedWith { a, b -> compareSemver(b.versionName, a.versionName) }
 
-            val release = ReleaseInfo(
-                tagName = tagName,
-                versionName = remoteVersion,
-                title = json.optString("name").ifBlank { tagName },
-                body = json.optString("body").ifBlank { "常规更新与体验优化" },
-                apkUrl = apkUrl,
-                apkName = apkName,
-                apkSizeBytes = apkSize,
-                htmlUrl = json.optString("html_url")
-            )
+            val latest = releases.firstOrNull()
+                ?: return@withContext UpdateCheckResult.Error("暂无可用版本")
 
             val localVersion = currentVersionName()
-            if (compareSemver(remoteVersion, localVersion) > 0) {
+            val pending = releases.filter { compareSemver(it.versionName, localVersion) > 0 }
+            if (pending.isNotEmpty()) {
                 if (notifyIfNew) {
                     val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    val alreadyNotified = prefs.getString(KEY_NOTIFIED_TAG, null) == tagName
+                    val alreadyNotified = prefs.getString(KEY_NOTIFIED_TAG, null) == latest.tagName
                     if (!respectNotifiedCache || !alreadyNotified) {
-                        postUpdateNotification(appContext, release)
-                        prefs.edit().putString(KEY_NOTIFIED_TAG, tagName).apply()
+                        postUpdateNotification(appContext, latest)
+                        prefs.edit().putString(KEY_NOTIFIED_TAG, latest.tagName).apply()
                     }
                 }
-                UpdateCheckResult.UpdateAvailable(release)
+                UpdateCheckResult.UpdateAvailable(release = latest, pendingReleases = pending)
             } else {
-                UpdateCheckResult.UpToDate(localVersion)
+                UpdateCheckResult.UpToDate(currentVersion = localVersion, recentReleases = releases)
             }
         }.getOrElse { err ->
             UpdateCheckResult.Error(err.message ?: "网络请求失败")
         }
     }
 
+    private fun parseReleaseJson(json: JSONObject): ReleaseInfo {
+        val tagName = json.optString("tag_name").trim()
+        val remoteVersion = tagName.removePrefix("v").removePrefix("V")
+        val publishedRaw = json.optString("published_at", "")
+        val publishedDate = if (publishedRaw.length >= 10) publishedRaw.substring(0, 10) else ""
+        val assets = json.optJSONArray("assets")
+        var apkUrl: String? = null
+        var apkName: String? = null
+        var apkSize = 0L
+        if (assets != null) {
+            for (i in 0 until assets.length()) {
+                val asset = assets.getJSONObject(i)
+                val name = asset.optString("name")
+                if (name.endsWith(".apk", ignoreCase = true)) {
+                    apkUrl = asset.optString("browser_download_url")
+                    apkName = name
+                    apkSize = asset.optLong("size", 0L)
+                    break
+                }
+            }
+        }
+        return ReleaseInfo(
+            tagName = tagName,
+            versionName = remoteVersion,
+            title = json.optString("name").ifBlank { tagName },
+            publishedDate = publishedDate,
+            changes = parseReleaseNotes(json.optString("body", "")),
+            apkUrl = apkUrl,
+            apkName = apkName,
+            apkSizeBytes = apkSize,
+            htmlUrl = json.optString("html_url")
+        )
+    }
+
+    fun parseReleaseNotes(rawBody: String): List<String> {
+        val lines = rawBody.lines()
+            .map { it.trim() }
+            .filter { line ->
+                line.isNotBlank() &&
+                    !line.contains("Full Changelog", ignoreCase = true) &&
+                    !line.startsWith("http://") &&
+                    !line.startsWith("https://") &&
+                    !line.startsWith("## ") &&
+                    !line.startsWith("<!--")
+            }
+            .map { line ->
+                line.removePrefix("- ")
+                    .removePrefix("* ")
+                    .removePrefix("• ")
+                    .removePrefix("### ")
+                    .replace(Regex("\\s*https?://\\S+"), "")
+                    .replace("**", "")
+                    .trim()
+            }
+            .filter { it.isNotBlank() }
+
+        return lines.ifEmpty { listOf("界面体验优化与稳定性提升") }
+    }
+
     suspend fun downloadApk(
         context: Context,
         release: ReleaseInfo,
         mirrorPrefix: String,
-        onProgress: (Float) -> Unit
+        onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit
     ): Result<Uri> = withContext(Dispatchers.IO) {
         val rawUrl = release.apkUrl ?: return@withContext Result.failure(
-            IllegalStateException("该 Release 未附带 APK 安装包")
+            IllegalStateException("该版本未附带 APK 安装包")
         )
         val cleanMirror = mirrorPrefix.trim()
         val finalUrl = if (cleanMirror.isNotBlank()) {
@@ -192,19 +243,22 @@ object GitHubUpdater {
                 FileOutputStream(target).use { output ->
                     val buffer = ByteArray(16 * 1024)
                     var downloaded = 0L
+                    var lastEmit = 0L
                     while (true) {
                         val read = input.read(buffer)
                         if (read <= 0) break
                         output.write(buffer, 0, read)
                         downloaded += read
-                        if (total > 0) {
-                            onProgress((downloaded.toFloat() / total.toFloat()).coerceIn(0f, 1f))
+                        val now = System.currentTimeMillis()
+                        if (now - lastEmit >= 80L || downloaded >= total) {
+                            lastEmit = now
+                            onProgress(downloaded, total)
                         }
                     }
                 }
             }
             conn.disconnect()
-            onProgress(1f)
+            onProgress(total, total)
             FileProvider.getUriForFile(
                 context,
                 "${BuildConfig.APPLICATION_ID}.fileprovider",
@@ -283,10 +337,11 @@ object GitHubUpdater {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val summary = release.changes.firstOrNull() ?: "点击查看更新内容并下载安装"
         val notification = NotificationCompat.Builder(context, ReminderManager.CHANNEL_UPDATE)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("发现新版本 ${release.tagName}")
-            .setContentText("点击查看更新说明并直接下载安装")
+            .setContentText(summary)
             .setContentIntent(openIntent)
             .setAutoCancel(true)
             .build()

@@ -125,13 +125,15 @@ private fun PlanSummaryCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                val periodText = if (plan.repeatCycle) {
-                    "${plan.startDate} 起 · 循环"
-                } else {
-                    "${plan.startDate} ~ ${endDate ?: plan.startDate}"
+                val isForeverDaily = plan.stages.size == 1 && plan.repeatCycle && plan.stages[0].durationValue == 1
+                val periodText = when {
+                    isForeverDaily -> "长期重复"
+                    plan.repeatCycle -> "${plan.startDate} 起 · 循环"
+                    else -> "${plan.startDate} ~ ${endDate ?: plan.startDate}"
                 }
                 val meta = if (plan.stages.size > 1) {
-                    "${plan.stages.size} 阶段 · $periodText"
+                    val isDaily = plan.stages.all { it.durationUnit.label == "天" && it.durationValue == 1 }
+                    if (isDaily) "逐日 ${plan.stages.size} 天 · $periodText" else "${plan.stages.size} 阶段 · $periodText"
                 } else {
                     val slotsCount = plan.stages.firstOrNull()?.slots?.count { it.amount > 0 } ?: 0
                     "每日 $slotsCount 次 · $periodText"

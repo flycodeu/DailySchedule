@@ -90,6 +90,8 @@ data class AppSettings(
     val githubRepo: String = "",
     val githubMirrorPrefix: String = "",
     val autoCheckUpdates: Boolean = true,
+    val remindersEnabled: Boolean = true,
+    val hidePermissionPrompts: Boolean = false,
     val reminderLeadMinutes: Int = 0
 )
 

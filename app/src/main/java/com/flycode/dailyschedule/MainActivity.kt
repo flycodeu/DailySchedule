@@ -12,8 +12,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -75,6 +80,12 @@ private enum class MainTab(val label: String) {
     PLANS("计划")
 }
 
+private enum class ScreenRoute {
+    HOME,
+    EDITOR,
+    SETTINGS
+}
+
 class MainActivity : ComponentActivity() {
 
     private val openDateState = mutableStateOf<LocalDate?>(null)
@@ -132,14 +143,16 @@ private fun DailyScheduleApp(
     val state by AppStore.state.collectAsState()
 
     var currentTab by remember { mutableStateOf(MainTab.TODAY) }
+    var currentRoute by remember { mutableStateOf(ScreenRoute.HOME) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var editingPlan by remember { mutableStateOf<PlanItem?>(null) }
-    var showEditor by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
     var adjustingDay by remember { mutableStateOf<ResolvedDayPlan?>(null) }
 
     var latestRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
+    var pendingReleases by remember { mutableStateOf<List<ReleaseInfo>>(emptyList()) }
+    var recentReleases by remember { mutableStateOf<List<ReleaseInfo>>(emptyList()) }
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var showChangelogOnly by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var updateStatusText by remember { mutableStateOf<String?>(null) }
 
@@ -164,18 +177,23 @@ private fun DailyScheduleApp(
     fun triggerUpdateCheck(manual: Boolean) {
         if (isCheckingUpdate) return
         isCheckingUpdate = true
-        if (manual) updateStatusText = "正在检查 GitHub Release…"
+        if (manual) updateStatusText = "正在检查更新…"
         scope.launch {
             when (val result = GitHubUpdater.checkForUpdate(context, notifyIfNew = !manual)) {
                 is UpdateCheckResult.UpdateAvailable -> {
                     latestRelease = result.release
+                    pendingReleases = result.pendingReleases
+                    recentReleases = result.pendingReleases
                     updateStatusText = "发现新版本 ${result.release.tagName}"
                     if (manual || pendingOpenUpdate) {
+                        showChangelogOnly = false
                         showUpdateDialog = true
                     }
                 }
                 is UpdateCheckResult.UpToDate -> {
                     latestRelease = null
+                    pendingReleases = emptyList()
+                    recentReleases = result.recentReleases
                     updateStatusText = "已是最新版本 v${result.currentVersion}"
                 }
                 is UpdateCheckResult.Error -> {
@@ -190,6 +208,7 @@ private fun DailyScheduleApp(
         if (pendingOpenDate != null) {
             selectedDate = pendingOpenDate
             currentTab = MainTab.TODAY
+            currentRoute = ScreenRoute.HOME
             onConsumedOpenDate()
         }
     }
@@ -198,6 +217,7 @@ private fun DailyScheduleApp(
         if (pendingOpenUpdate) {
             onConsumedOpenUpdate()
             if (latestRelease != null) {
+                showChangelogOnly = false
                 showUpdateDialog = true
             } else {
                 triggerUpdateCheck(manual = true)
@@ -228,188 +248,213 @@ private fun DailyScheduleApp(
         }
     }
 
-    if (showEditor) {
-        PlanEditorScreen(
-            initialPlan = editingPlan,
-            onDismiss = { showEditor = false },
-            onSave = { plan ->
-                AppStore.upsertPlan(context, plan)
-                ReminderManager.rescheduleAll(context)
-                showEditor = false
-            },
-            onDelete = { planId ->
-                AppStore.deletePlan(context, planId)
-                ReminderManager.rescheduleAll(context)
-                showEditor = false
-            }
-        )
-        return
-    }
-
-    if (showSettings) {
-        SettingsScreen(
-            state = state,
-            latestRelease = latestRelease,
-            isCheckingUpdate = isCheckingUpdate,
-            updateStatusText = updateStatusText,
-            hasNotificationPermission = hasNotificationPermission,
-            hasExactAlarmPermission = hasExactAlarmPermission,
-            onDismiss = { showSettings = false },
-            onCheckUpdate = { triggerUpdateCheck(manual = true) },
-            onOpenUpdateDialog = {
-                showSettings = false
-                showUpdateDialog = true
-            },
-            onUpdateSettings = { transform ->
-                AppStore.updateSettings(context, transform)
-                GitHubUpdater.schedulePeriodicCheck(context)
-            },
-            onRequestNotificationPermission = requestNotificationPermission,
-            onRequestExactAlarmPermission = requestExactAlarmPermission,
-            onImportedData = {
-                ReminderManager.rescheduleAll(context)
-            }
-        )
-        return
-    }
-
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = when (currentTab) {
-                                MainTab.TODAY -> "日常计划"
-                                MainTab.CALENDAR -> "日历"
-                                MainTab.PLANS -> "全部计划"
-                            },
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (latestRelease != null) {
-                            Spacer(Modifier.width(8.dp))
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.clickable { showUpdateDialog = true }
-                            ) {
-                                Text(
-                                    text = "新版本 ${latestRelease!!.tagName}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
-                        }
-                    }
+    AnimatedContent(
+        targetState = currentRoute,
+        transitionSpec = {
+            fadeIn(animationSpec = tween(160)) togetherWith fadeOut(animationSpec = tween(130))
+        },
+        label = "screenRoute"
+    ) { route ->
+        when (route) {
+            ScreenRoute.EDITOR -> PlanEditorScreen(
+                initialPlan = editingPlan,
+                onDismiss = { currentRoute = ScreenRoute.HOME },
+                onSave = { plan ->
+                    AppStore.upsertPlan(context, plan)
+                    ReminderManager.rescheduleAll(context)
+                    currentRoute = ScreenRoute.HOME
                 },
-                actions = {
-                    IconButton(onClick = {
-                        refreshPermissions()
-                        showSettings = true
-                    }) {
-                        Icon(Icons.Rounded.Settings, contentDescription = "设置")
-                    }
+                onDelete = { planId ->
+                    AppStore.deletePlan(context, planId)
+                    ReminderManager.rescheduleAll(context)
+                    currentRoute = ScreenRoute.HOME
                 }
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    editingPlan = null
-                    showEditor = true
+
+            ScreenRoute.SETTINGS -> SettingsScreen(
+                state = state,
+                latestRelease = latestRelease,
+                recentReleases = recentReleases,
+                isCheckingUpdate = isCheckingUpdate,
+                updateStatusText = updateStatusText,
+                hasNotificationPermission = hasNotificationPermission,
+                hasExactAlarmPermission = hasExactAlarmPermission,
+                onDismiss = {
+                    refreshPermissions()
+                    currentRoute = ScreenRoute.HOME
                 },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = "新建计划")
-            }
-        },
-        bottomBar = {
-            NavigationBar {
-                MainTab.entries.forEach { tab ->
-                    val icon = when (tab) {
-                        MainTab.TODAY -> Icons.Rounded.Home
-                        MainTab.CALENDAR -> Icons.Rounded.DateRange
-                        MainTab.PLANS -> Icons.AutoMirrored.Rounded.List
-                    }
-                    NavigationBarItem(
-                        selected = currentTab == tab,
-                        onClick = {
-                            refreshPermissions()
-                            currentTab = tab
-                        },
-                        icon = { Icon(icon, contentDescription = tab.label, modifier = Modifier.size(22.dp)) },
-                        label = { Text(tab.label) }
-                    )
+                onCheckUpdate = { triggerUpdateCheck(manual = true) },
+                onOpenUpdateDialog = {
+                    showChangelogOnly = false
+                    showUpdateDialog = true
+                },
+                onOpenChangelog = {
+                    showChangelogOnly = true
+                    showUpdateDialog = true
+                },
+                onUpdateSettings = { transform ->
+                    AppStore.updateSettings(context, transform)
+                    ReminderManager.rescheduleAll(context)
+                    GitHubUpdater.schedulePeriodicCheck(context)
+                },
+                onRequestNotificationPermission = requestNotificationPermission,
+                onRequestExactAlarmPermission = requestExactAlarmPermission,
+                onImportedData = {
+                    ReminderManager.rescheduleAll(context)
                 }
-            }
-        }
-    ) { innerPadding ->
-        Surface(
-            modifier = Modifier.padding(innerPadding),
-            color = MaterialTheme.colorScheme.background
-        ) {
-            when (currentTab) {
-                MainTab.TODAY -> TodayScreen(
-                    state = state,
-                    selectedDate = selectedDate,
-                    hasNotificationPermission = hasNotificationPermission,
-                    hasExactAlarmPermission = hasExactAlarmPermission,
-                    onSelectDate = { selectedDate = it },
-                    onRequestNotificationPermission = requestNotificationPermission,
-                    onRequestExactAlarmPermission = requestExactAlarmPermission,
-                    onToggleSlot = { planId, date, slotId ->
-                        AppStore.toggleCheckIn(context, planId, date, slotId)
-                        ReminderManager.rescheduleAll(context)
-                    },
-                    onAdjustDay = { adjustingDay = it },
-                    onEditPlan = { planId ->
-                        editingPlan = state.plans.firstOrNull { it.id == planId }
-                        if (editingPlan != null) showEditor = true
-                    },
-                    onCreatePlan = {
-                        editingPlan = null
-                        showEditor = true
-                    }
-                )
+            )
 
-                MainTab.CALENDAR -> CalendarScreen(
-                    state = state,
-                    selectedDate = selectedDate,
-                    onSelectDate = { selectedDate = it },
-                    onToggleSlot = { planId, date, slotId ->
-                        AppStore.toggleCheckIn(context, planId, date, slotId)
-                        ReminderManager.rescheduleAll(context)
-                    },
-                    onAdjustDay = { adjustingDay = it },
-                    onEditPlan = { planId ->
-                        editingPlan = state.plans.firstOrNull { it.id == planId }
-                        if (editingPlan != null) showEditor = true
-                    },
-                    onCreatePlan = {
-                        editingPlan = null
-                        showEditor = true
+            ScreenRoute.HOME -> Scaffold(
+                containerColor = MaterialTheme.colorScheme.background,
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = when (currentTab) {
+                                        MainTab.TODAY -> "日常计划"
+                                        MainTab.CALENDAR -> "日历"
+                                        MainTab.PLANS -> "全部计划"
+                                    },
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (latestRelease != null) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        modifier = Modifier.clickable {
+                                            showChangelogOnly = false
+                                            showUpdateDialog = true
+                                        }
+                                    ) {
+                                        Text(
+                                            text = "新版本 ${latestRelease!!.tagName}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = {
+                                refreshPermissions()
+                                currentRoute = ScreenRoute.SETTINGS
+                            }) {
+                                Icon(Icons.Rounded.Settings, contentDescription = "设置")
+                            }
+                        }
+                    )
+                },
+                floatingActionButton = {
+                    FloatingActionButton(
+                        onClick = {
+                            editingPlan = null
+                            currentRoute = ScreenRoute.EDITOR
+                        },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ) {
+                        Icon(Icons.Rounded.Add, contentDescription = "新建计划")
                     }
-                )
+                },
+                bottomBar = {
+                    NavigationBar {
+                        MainTab.entries.forEach { tab ->
+                            val icon = when (tab) {
+                                MainTab.TODAY -> Icons.Rounded.Home
+                                MainTab.CALENDAR -> Icons.Rounded.DateRange
+                                MainTab.PLANS -> Icons.AutoMirrored.Rounded.List
+                            }
+                            NavigationBarItem(
+                                selected = currentTab == tab,
+                                onClick = {
+                                    refreshPermissions()
+                                    currentTab = tab
+                                },
+                                icon = { Icon(icon, contentDescription = tab.label, modifier = Modifier.size(22.dp)) },
+                                label = { Text(tab.label) }
+                            )
+                        }
+                    }
+                }
+            ) { innerPadding ->
+                Surface(
+                    modifier = Modifier.padding(innerPadding),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    Crossfade(
+                        targetState = currentTab,
+                        animationSpec = tween(150),
+                        label = "mainTab"
+                    ) { tab ->
+                        when (tab) {
+                            MainTab.TODAY -> TodayScreen(
+                                state = state,
+                                selectedDate = selectedDate,
+                                hasNotificationPermission = hasNotificationPermission,
+                                hasExactAlarmPermission = hasExactAlarmPermission,
+                                onSelectDate = { selectedDate = it },
+                                onRequestNotificationPermission = requestNotificationPermission,
+                                onRequestExactAlarmPermission = requestExactAlarmPermission,
+                                onDismissPermissionBanner = {
+                                    AppStore.updateSettings(context) { it.copy(hidePermissionPrompts = true) }
+                                },
+                                onToggleSlot = { planId, date, slotId ->
+                                    AppStore.toggleCheckIn(context, planId, date, slotId)
+                                    ReminderManager.rescheduleAll(context)
+                                },
+                                onAdjustDay = { adjustingDay = it },
+                                onEditPlan = { planId ->
+                                    editingPlan = state.plans.firstOrNull { it.id == planId }
+                                    if (editingPlan != null) currentRoute = ScreenRoute.EDITOR
+                                },
+                                onCreatePlan = {
+                                    editingPlan = null
+                                    currentRoute = ScreenRoute.EDITOR
+                                }
+                            )
 
-                MainTab.PLANS -> PlansScreen(
-                    state = state,
-                    onCreatePlan = {
-                        editingPlan = null
-                        showEditor = true
-                    },
-                    onEditPlan = { plan ->
-                        editingPlan = plan
-                        showEditor = true
-                    },
-                    onTogglePlanActive = { planId ->
-                        AppStore.togglePlanActive(context, planId)
-                        ReminderManager.rescheduleAll(context)
+                            MainTab.CALENDAR -> CalendarScreen(
+                                state = state,
+                                selectedDate = selectedDate,
+                                onSelectDate = { selectedDate = it },
+                                onToggleSlot = { planId, date, slotId ->
+                                    AppStore.toggleCheckIn(context, planId, date, slotId)
+                                    ReminderManager.rescheduleAll(context)
+                                },
+                                onAdjustDay = { adjustingDay = it },
+                                onEditPlan = { planId ->
+                                    editingPlan = state.plans.firstOrNull { it.id == planId }
+                                    if (editingPlan != null) currentRoute = ScreenRoute.EDITOR
+                                },
+                                onCreatePlan = {
+                                    editingPlan = null
+                                    currentRoute = ScreenRoute.EDITOR
+                                }
+                            )
+
+                            MainTab.PLANS -> PlansScreen(
+                                state = state,
+                                onCreatePlan = {
+                                    editingPlan = null
+                                    currentRoute = ScreenRoute.EDITOR
+                                },
+                                onEditPlan = { plan ->
+                                    editingPlan = plan
+                                    currentRoute = ScreenRoute.EDITOR
+                                },
+                                onTogglePlanActive = { planId ->
+                                    AppStore.togglePlanActive(context, planId)
+                                    ReminderManager.rescheduleAll(context)
+                                }
+                            )
+                        }
                     }
-                )
+                }
             }
         }
     }
@@ -426,15 +471,18 @@ private fun DailyScheduleApp(
             onEditFullPlan = {
                 editingPlan = state.plans.firstOrNull { it.id == target.plan.id }
                 adjustingDay = null
-                if (editingPlan != null) showEditor = true
+                if (editingPlan != null) currentRoute = ScreenRoute.EDITOR
             }
         )
     }
 
-    if (showUpdateDialog && latestRelease != null) {
+    val dialogRelease = latestRelease ?: recentReleases.firstOrNull()
+    if (showUpdateDialog && dialogRelease != null) {
         UpdateDialog(
-            release = latestRelease!!,
+            release = dialogRelease,
+            releasesToShow = if (showChangelogOnly) recentReleases else pendingReleases,
             mirrorPrefix = state.settings.githubMirrorPrefix,
+            isAlreadyLatest = showChangelogOnly || latestRelease == null,
             onDismiss = { showUpdateDialog = false }
         )
     }

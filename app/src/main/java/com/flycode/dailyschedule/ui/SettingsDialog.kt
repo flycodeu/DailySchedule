@@ -65,6 +65,7 @@ import com.flycode.dailyschedule.update.ReleaseInfo
 fun SettingsScreen(
     state: AppState,
     latestRelease: ReleaseInfo?,
+    recentReleases: List<ReleaseInfo>,
     isCheckingUpdate: Boolean,
     updateStatusText: String?,
     hasNotificationPermission: Boolean,
@@ -72,6 +73,7 @@ fun SettingsScreen(
     onDismiss: () -> Unit,
     onCheckUpdate: () -> Unit,
     onOpenUpdateDialog: () -> Unit,
+    onOpenChangelog: () -> Unit,
     onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onRequestExactAlarmPermission: () -> Unit,
@@ -110,6 +112,101 @@ fun SettingsScreen(
         ) {
             item {
                 Text(
+                    text = "提醒与闹钟",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("开启定时提醒与闹钟", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = if (state.settings.remindersEnabled) "已启用，按计划时段推送提醒" else "已关闭，仅作为打卡记录使用",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = state.settings.remindersEnabled,
+                                onCheckedChange = { enabled ->
+                                    onUpdateSettings {
+                                        it.copy(
+                                            remindersEnabled = enabled,
+                                            hidePermissionPrompts = if (!enabled) true else it.hidePermissionPrompts
+                                        )
+                                    }
+                                }
+                            )
+                        }
+
+                        if (state.settings.remindersEnabled) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "隐藏首页权限提示条",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Switch(
+                                    checked = state.settings.hidePermissionPrompts,
+                                    onCheckedChange = { hidden ->
+                                        onUpdateSettings { it.copy(hidePermissionPrompts = hidden) }
+                                    }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        if (!hasNotificationPermission) {
+                                            onRequestNotificationPermission()
+                                        } else {
+                                            ReminderManager.showTestNotification(context)
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Rounded.Notifications, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(if (hasNotificationPermission) "测试通知" else "开启通知")
+                                }
+                                if (!hasExactAlarmPermission) {
+                                    OutlinedButton(
+                                        onClick = onRequestExactAlarmPermission,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("授权闹钟")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Text(
                     text = "软件更新",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
@@ -129,13 +226,13 @@ fun SettingsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "版本 v${GitHubUpdater.currentVersionName()}",
+                                    text = "当前版本 v${GitHubUpdater.currentVersionName()}",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 if (latestRelease != null || !updateStatusText.isNullOrBlank()) {
                                     Text(
-                                        text = latestRelease?.let { "新版本 ${it.tagName} 可用" }
+                                        text = latestRelease?.let { "发现新版本 ${it.tagName}" }
                                             ?: updateStatusText.orEmpty(),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = if (latestRelease != null) {
@@ -148,7 +245,7 @@ fun SettingsScreen(
                             }
                             if (latestRelease != null) {
                                 Button(onClick = onOpenUpdateDialog) {
-                                    Text("更新")
+                                    Text("查看更新")
                                 }
                             } else {
                                 OutlinedButton(
@@ -159,6 +256,15 @@ fun SettingsScreen(
                                     Spacer(Modifier.width(4.dp))
                                     Text(if (isCheckingUpdate) "检查中" else "检查更新")
                                 }
+                            }
+                        }
+
+                        if (recentReleases.isNotEmpty() && latestRelease == null) {
+                            TextButton(
+                                onClick = onOpenChangelog,
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("查看近期版本更新内容")
                             }
                         }
 
@@ -243,7 +349,7 @@ fun SettingsScreen(
 
             item {
                 Text(
-                    text = "提醒与数据",
+                    text = "数据备份",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -255,59 +361,28 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.surface,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        OutlinedButton(
+                            onClick = {
+                                val json = AppStore.exportJson(context)
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("DailyScheduleBackup", json))
+                                Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f)
                         ) {
-                            OutlinedButton(
-                                onClick = {
-                                    if (!hasNotificationPermission) {
-                                        onRequestNotificationPermission()
-                                    } else {
-                                        ReminderManager.showTestNotification(context)
-                                    }
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Rounded.Notifications, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(if (hasNotificationPermission) "测试通知" else "开启通知")
-                            }
-                            if (!hasExactAlarmPermission) {
-                                OutlinedButton(
-                                    onClick = onRequestExactAlarmPermission,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("精确闹钟")
-                                }
-                            }
+                            Text("导出备份")
                         }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        OutlinedButton(
+                            onClick = { showImportDialog = true },
+                            modifier = Modifier.weight(1f)
                         ) {
-                            OutlinedButton(
-                                onClick = {
-                                    val json = AppStore.exportJson(context)
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("DailyScheduleBackup", json))
-                                    Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("导出备份")
-                            }
-                            OutlinedButton(
-                                onClick = { showImportDialog = true },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("导入恢复")
-                            }
+                            Text("导入恢复")
                         }
                     }
                 }

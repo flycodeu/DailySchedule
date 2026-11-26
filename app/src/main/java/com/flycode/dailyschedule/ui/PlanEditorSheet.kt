@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -62,7 +63,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -79,10 +82,10 @@ import java.util.UUID
 
 private val PresetUnits = listOf("片", "粒", "次", "ml", "分钟")
 
-private enum class ScheduleMode(val label: String) {
-    FIXED("每日固定"),
-    DAILY("逐日安排"),
-    STAGED("多阶段")
+private enum class ScheduleMode(val label: String, val desc: String) {
+    FIXED("每日固定", "每天按相同时间与数量执行"),
+    DAILY("逐日安排", "每天单独设数量，如今天 1、明天 1、后天 2"),
+    STAGED("多阶段", "按周或按月分阶段调整数量与频次")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,7 +105,7 @@ fun PlanEditorScreen(
     var note by remember { mutableStateOf(initialPlan?.note ?: "") }
     var colorIndex by remember { mutableIntStateOf(initialPlan?.colorIndex ?: 0) }
     var startDate by remember { mutableStateOf(initialPlan?.startDate ?: LocalDate.now()) }
-    var repeatCycle by remember { mutableStateOf(initialPlan?.repeatCycle ?: false) }
+    var repeatCycle by remember { mutableStateOf(initialPlan?.repeatCycle ?: true) }
 
     val detectedMode = remember(initialPlan) {
         val list = initialPlan?.stages.orEmpty()
@@ -114,45 +117,61 @@ fun PlanEditorScreen(
     }
     var mode by remember { mutableStateOf(detectedMode) }
 
-    var dailyTimes by remember {
+    // Shared default times used by DAILY and STAGED modes
+    var sharedTimes by remember {
         mutableStateOf(
             initialPlan?.stages?.firstOrNull { it.slots.isNotEmpty() }?.slots?.map { it.copy() }
                 ?: defaultThreeSlots()
         )
     }
 
-    // Mode 1: Fixed plan
+    // FIXED mode state
     val firstStage = initialPlan?.stages?.firstOrNull()
-    var fixedDurationText by remember { mutableStateOf((firstStage?.durationValue ?: 30).toString()) }
-    var fixedDurationUnit by remember { mutableStateOf(firstStage?.durationUnit ?: DurationUnit.DAY) }
+    var fixedDurationText by remember {
+        val defaultVal = if (firstStage != null && !(initialPlan.repeatCycle && firstStage.durationValue == 1 && firstStage.durationUnit == DurationUnit.DAY)) {
+            firstStage.durationValue
+        } else {
+            30
+        }
+        mutableStateOf(defaultVal.toString())
+    }
+    var fixedDurationUnit by remember {
+        mutableStateOf(
+            if (firstStage != null && !(initialPlan.repeatCycle && firstStage.durationValue == 1 && firstStage.durationUnit == DurationUnit.DAY)) {
+                firstStage.durationUnit
+            } else {
+                DurationUnit.DAY
+            }
+        )
+    }
     var fixedSlots by remember {
         mutableStateOf(firstStage?.slots?.ifEmpty { null } ?: defaultThreeSlots())
     }
 
-    // Mode 2: Day-by-day plan (each stage is 1 day)
+    // DAILY mode state (1-day stages)
     var dailyStages by remember {
         mutableStateOf(
             if (detectedMode == ScheduleMode.DAILY && !initialPlan?.stages.isNullOrEmpty()) {
                 initialPlan!!.stages
             } else {
                 listOf(
-                    PlanStage(durationValue = 1, durationUnit = DurationUnit.DAY, slots = cloneSlots(dailyTimes, 1.0)),
-                    PlanStage(durationValue = 1, durationUnit = DurationUnit.DAY, slots = cloneSlots(dailyTimes, 1.0)),
-                    PlanStage(durationValue = 1, durationUnit = DurationUnit.DAY, slots = cloneSlots(dailyTimes, 1.0))
+                    PlanStage(durationValue = 1, durationUnit = DurationUnit.DAY, slots = cloneSlots(sharedTimes, 1.0)),
+                    PlanStage(durationValue = 1, durationUnit = DurationUnit.DAY, slots = cloneSlots(sharedTimes, 1.0)),
+                    PlanStage(durationValue = 1, durationUnit = DurationUnit.DAY, slots = cloneSlots(sharedTimes, 1.0))
                 )
             }
         )
     }
 
-    // Mode 3: Multi-stage plan
+    // STAGED mode state (multi-week/month phases)
     var phasedStages by remember {
         mutableStateOf(
             if (detectedMode == ScheduleMode.STAGED && !initialPlan?.stages.isNullOrEmpty()) {
                 initialPlan!!.stages
             } else {
                 listOf(
-                    PlanStage(durationValue = 1, durationUnit = DurationUnit.MONTH, slots = cloneSlots(dailyTimes, 2.0)),
-                    PlanStage(durationValue = 1, durationUnit = DurationUnit.MONTH, slots = cloneSlots(dailyTimes, 1.0))
+                    PlanStage(durationValue = 1, durationUnit = DurationUnit.MONTH, slots = cloneSlots(sharedTimes, 2.0)),
+                    PlanStage(durationValue = 1, durationUnit = DurationUnit.MONTH, slots = cloneSlots(sharedTimes, 1.0))
                 )
             }
         )
@@ -161,16 +180,12 @@ fun PlanEditorScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     fun updateSharedTimes(newTimes: List<SlotDose>) {
-        dailyTimes = newTimes
-        fixedSlots = newTimes.mapIndexed { idx, slot ->
-            val prevAmt = fixedSlots.getOrNull(idx)?.amount ?: slot.amount
-            slot.copy(amount = prevAmt)
-        }
+        sharedTimes = newTimes
         dailyStages = dailyStages.map { st ->
             if (st.isRestStage) st
             else {
-                val baseAmt = st.slots.firstOrNull { it.amount > 0 }?.amount ?: 1.0
-                st.copy(slots = cloneSlots(newTimes, baseAmt))
+                val amt = st.slots.firstOrNull { it.amount > 0 }?.amount ?: 1.0
+                st.copy(slots = cloneSlots(newTimes, amt))
             }
         }
     }
@@ -179,13 +194,48 @@ fun PlanEditorScreen(
         ScheduleMode.FIXED -> listOf(
             PlanStage(
                 id = firstStage?.id ?: UUID.randomUUID().toString().take(8),
-                durationValue = fixedDurationText.toIntOrNull()?.coerceAtLeast(1) ?: 30,
-                durationUnit = fixedDurationUnit,
+                durationValue = if (repeatCycle) 1 else (fixedDurationText.toIntOrNull()?.coerceAtLeast(1) ?: 30),
+                durationUnit = if (repeatCycle) DurationUnit.DAY else fixedDurationUnit,
                 slots = fixedSlots
             )
         )
         ScheduleMode.DAILY -> dailyStages
         ScheduleMode.STAGED -> phasedStages
+    }
+
+    val safeUnit = unit.trim().ifBlank { "次" }
+    val stageDateRanges = remember(phasedStages, startDate) {
+        var cursor = startDate
+        phasedStages.map { st ->
+            val end = st.durationUnit.addTo(cursor, st.durationValue).minusDays(1)
+            val pair = cursor to end
+            cursor = end.plusDays(1)
+            pair
+        }
+    }
+    val previewSummary = remember(mode, startDate, repeatCycle, fixedDurationText, fixedDurationUnit, fixedSlots, dailyStages, phasedStages, safeUnit) {
+        val dateStr = "${startDate.monthValue}/${startDate.dayOfMonth}"
+        when (mode) {
+            ScheduleMode.FIXED -> {
+                val activeCount = fixedSlots.count { it.amount > 0.0 }
+                val durPart = if (repeatCycle) "长期每天" else "持续 ${fixedDurationText.ifBlank { "30" }}${fixedDurationUnit.label}"
+                "$dateStr 起 · 每日 $activeCount 次 · $durPart"
+            }
+            ScheduleMode.DAILY -> {
+                val seq = dailyStages.take(5).joinToString(" → ") { st ->
+                    if (st.isRestStage) "休" else ScheduleEngine.formatAmount(st.slots.maxOfOrNull { it.amount } ?: 0.0)
+                } + if (dailyStages.size > 5) "…" else ""
+                val loopPart = if (repeatCycle) "循环" else "单轮"
+                "$dateStr 起 · ${dailyStages.size} 天$loopPart（$seq $safeUnit）"
+            }
+            ScheduleMode.STAGED -> {
+                val phases = phasedStages.take(4).joinToString(" → ") { st ->
+                    "${st.durationValue}${st.durationUnit.label}"
+                } + if (phasedStages.size > 4) "…" else ""
+                val loopPart = if (repeatCycle) " · 循环" else ""
+                "$dateStr 起 · ${phasedStages.size} 个阶段（$phases）$loopPart"
+            }
+        }
     }
 
     Scaffold(
@@ -201,14 +251,14 @@ fun PlanEditorScreen(
                 },
                 actions = {
                     val stagesToSave = buildStagesForSave()
-                    TextButton(
+                    Button(
                         enabled = title.isNotBlank() && stagesToSave.isNotEmpty(),
                         onClick = {
                             onSave(
                                 PlanItem(
                                     id = initialPlan?.id ?: UUID.randomUUID().toString().take(8),
                                     title = title.trim(),
-                                    unit = unit.trim().ifBlank { "次" },
+                                    unit = safeUnit,
                                     note = note.trim(),
                                     colorIndex = colorIndex,
                                     startDate = startDate,
@@ -218,9 +268,11 @@ fun PlanEditorScreen(
                                     dayOverrides = initialPlan?.dayOverrides ?: emptyMap()
                                 )
                             )
-                        }
+                        },
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(end = 8.dp)
                     ) {
-                        Text("保存", fontWeight = FontWeight.Bold)
+                        Text("保存", fontWeight = FontWeight.SemiBold)
                     }
                 }
             )
@@ -232,12 +284,40 @@ fun PlanEditorScreen(
                 .padding(innerPadding)
                 .imePadding()
                 .navigationBarsPadding(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 140.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 140.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Section 1: Basic Info
+            // Live Plain-Language Preview Banner
             item {
-                EditorSectionHeader("基本信息")
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(PlanAccentColors[colorIndex.mod(PlanAccentColors.size)])
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = previewSummary,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+
+            // Card 1: Basic Identity Only
+            item {
+                EditorSectionHeader("1. 计划信息")
                 Spacer(Modifier.height(8.dp))
                 Surface(
                     shape = RoundedCornerShape(18.dp),
@@ -252,7 +332,7 @@ fun PlanEditorScreen(
                             value = title,
                             onValueChange = { title = it },
                             label = { Text("名称") },
-                            placeholder = { Text("输入计划名称") },
+                            placeholder = { Text("例如：维生素、每日饮水") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -287,12 +367,95 @@ fun PlanEditorScreen(
                                 OutlinedTextField(
                                     value = unit,
                                     onValueChange = { unit = it },
-                                    placeholder = { Text("自定义单位") },
+                                    placeholder = { Text("输入单位") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         }
+
+                        OutlinedTextField(
+                            value = note,
+                            onValueChange = { note = it },
+                            label = { Text("备注（选填）") },
+                            placeholder = { Text("如：饭后半小时") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "颜色标记",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                PlanAccentColors.forEachIndexed { idx, color ->
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(color)
+                                            .then(
+                                                if (idx == colorIndex) {
+                                                    Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                                } else Modifier
+                                            )
+                                            .clickable { colorIndex = idx }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Card 2: Schedule Mode + Date + Times (Unified, No Duplication)
+            item {
+                EditorSectionHeader("2. 执行安排")
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                            ScheduleMode.entries.forEachIndexed { idx, item ->
+                                SegmentedButton(
+                                    selected = mode == item,
+                                    onClick = {
+                                        if (mode != item) {
+                                            if (item == ScheduleMode.DAILY && initialPlan == null) {
+                                                repeatCycle = false
+                                            }
+                                            if (item == ScheduleMode.STAGED && initialPlan == null) {
+                                                repeatCycle = false
+                                            }
+                                            mode = item
+                                        }
+                                    },
+                                    shape = SegmentedButtonDefaults.itemShape(index = idx, count = ScheduleMode.entries.size)
+                                ) {
+                                    Text(item.label)
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = mode.desc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
 
@@ -308,7 +471,7 @@ fun PlanEditorScreen(
                                         startDate.dayOfMonth
                                     ).show()
                                 }
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("开始日期", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
@@ -329,116 +492,145 @@ fun PlanEditorScreen(
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
 
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("标识颜色", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                PlanAccentColors.forEachIndexed { idx, color ->
-                                    Box(
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .clip(CircleShape)
-                                            .background(color)
-                                            .then(
-                                                if (idx == colorIndex) {
-                                                    Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                                } else Modifier
-                                            )
-                                            .clickable { colorIndex = idx }
-                                    )
-                                }
-                            }
-                        }
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-                        Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("循环重复", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                            Text(
+                                text = when (mode) {
+                                    ScheduleMode.FIXED -> "长期每天重复"
+                                    ScheduleMode.DAILY -> "按以上天数循环"
+                                    ScheduleMode.STAGED -> "全部阶段结束后循环"
+                                },
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f)
+                            )
                             Switch(checked = repeatCycle, onCheckedChange = { repeatCycle = it })
                         }
 
-                        OutlinedTextField(
-                            value = note,
-                            onValueChange = { note = it },
-                            label = { Text("备注") },
-                            placeholder = { Text("选填") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            }
+                        if (mode == ScheduleMode.FIXED) {
+                            if (!repeatCycle) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                                DurationRow(
+                                    durationText = fixedDurationText,
+                                    durationUnit = fixedDurationUnit,
+                                    onDurationTextChange = { fixedDurationText = it },
+                                    onUnitChange = { fixedDurationUnit = it }
+                                )
+                            }
 
-            // Section 2: Reminder Times
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    EditorSectionHeader("提醒时间", modifier = Modifier.weight(1f))
-                    TextButton(onClick = {
-                        val nextHour = (8 + dailyTimes.size * 4).coerceAtMost(23)
-                        val added = SlotDose(time = String.format("%02d:00", nextHour), amount = 1.0)
-                        updateSharedTimes((dailyTimes + added).sortedBy { it.parsedTime })
-                    }) {
-                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Text("添加")
-                    }
-                }
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        dailyTimes.forEachIndexed { idx, slot ->
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .clickable {
-                                            pickTime(context, slot.parsedTime) { newTime ->
-                                                val updated = dailyTimes.mapIndexed { i, s ->
-                                                    if (i == idx) s.copy(time = newTime) else s
-                                                }.sortedBy { it.parsedTime }
-                                                updateSharedTimes(updated)
+                                Text(
+                                    text = "每日时间与数量",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = {
+                                    val nextHour = (8 + fixedSlots.size * 4).coerceAtMost(23)
+                                    val added = SlotDose(time = String.format("%02d:00", nextHour), amount = 1.0)
+                                    val next = (fixedSlots + added).sortedBy { it.parsedTime }
+                                    fixedSlots = next
+                                    sharedTimes = next
+                                }) {
+                                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Text("添加时间")
+                                }
+                            }
+
+                            fixedSlots.forEachIndexed { idx, slot ->
+                                SlotStepperRow(
+                                    time = slot.time,
+                                    amount = slot.amount,
+                                    unit = safeUnit,
+                                    onPickTime = {
+                                        pickTime(context, slot.parsedTime) { newTime ->
+                                            val updated = fixedSlots.mapIndexed { i, s ->
+                                                if (i == idx) s.copy(time = newTime) else s
+                                            }.sortedBy { it.parsedTime }
+                                            fixedSlots = updated
+                                            sharedTimes = updated
+                                        }
+                                    },
+                                    onChangeAmount = { newAmt ->
+                                        fixedSlots = fixedSlots.mapIndexed { i, s ->
+                                            if (i == idx) s.copy(amount = newAmt) else s
+                                        }
+                                    },
+                                    onDelete = if (fixedSlots.size > 1) {
+                                        {
+                                            val next = fixedSlots.filterIndexed { i, _ -> i != idx }
+                                            fixedSlots = next
+                                            sharedTimes = next
+                                        }
+                                    } else null
+                                )
+                            }
+                        } else {
+                            // Compact shared time pills for DAILY / STAGED
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "默认每日时间",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = {
+                                    val nextHour = (8 + sharedTimes.size * 4).coerceAtMost(23)
+                                    val added = SlotDose(time = String.format("%02d:00", nextHour), amount = 1.0)
+                                    updateSharedTimes((sharedTimes + added).sortedBy { it.parsedTime })
+                                }) {
+                                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Text("加时间")
+                                }
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                sharedTimes.forEachIndexed { idx, slot ->
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .clickable {
+                                                    pickTime(context, slot.parsedTime) { newTime ->
+                                                        val updated = sharedTimes.mapIndexed { i, s ->
+                                                            if (i == idx) s.copy(time = newTime) else s
+                                                        }.sortedBy { it.parsedTime }
+                                                        updateSharedTimes(updated)
+                                                    }
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(slot.time, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                            if (sharedTimes.size > 1) {
+                                                Spacer(Modifier.width(4.dp))
+                                                Icon(
+                                                    Icons.Rounded.Close,
+                                                    contentDescription = "删除时间",
+                                                    modifier = Modifier
+                                                        .size(14.dp)
+                                                        .clickable {
+                                                            updateSharedTimes(sharedTimes.filterIndexed { i, _ -> i != idx })
+                                                        },
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
                                             }
                                         }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = slot.time,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    if (dailyTimes.size > 1) {
-                                        Spacer(Modifier.width(6.dp))
-                                        Icon(
-                                            Icons.Rounded.Close,
-                                            contentDescription = "删除",
-                                            modifier = Modifier
-                                                .size(15.dp)
-                                                .clickable {
-                                                    updateSharedTimes(dailyTimes.filterIndexed { i, _ -> i != idx })
-                                                },
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
                                     }
                                 }
                             }
@@ -447,196 +639,87 @@ fun PlanEditorScreen(
                 }
             }
 
-            // Section 3: Schedule Arrangement
-            item {
-                EditorSectionHeader("排期方式")
-                Spacer(Modifier.height(8.dp))
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    ScheduleMode.entries.forEachIndexed { idx, item ->
-                        SegmentedButton(
-                            selected = mode == item,
-                            onClick = { mode = item },
-                            shape = SegmentedButtonDefaults.itemShape(index = idx, count = ScheduleMode.entries.size)
-                        ) {
-                            Text(item.label)
+            if (mode == ScheduleMode.DAILY) {
+                itemsIndexed(dailyStages, key = { idx, s -> "${s.id}_$idx" }) { idx, stage ->
+                    val previewDate = startDate.plusDays(idx.toLong())
+                    DayPlanCard(
+                        dayNumber = idx + 1,
+                        date = previewDate,
+                        stage = stage,
+                        defaultSlots = sharedTimes,
+                        unit = safeUnit,
+                        canDelete = dailyStages.size > 1,
+                        onUpdate = { updated ->
+                            dailyStages = dailyStages.mapIndexed { i, item -> if (i == idx) updated else item }
+                        },
+                        onDelete = {
+                            dailyStages = dailyStages.filterIndexed { i, _ -> i != idx }
                         }
+                    )
+                }
+
+                item {
+                    OutlinedButton(
+                        onClick = {
+                            val lastAmt = dailyStages.lastOrNull()?.slots?.firstOrNull { it.amount > 0 }?.amount ?: 1.0
+                            dailyStages = dailyStages + PlanStage(
+                                durationValue = 1,
+                                durationUnit = DurationUnit.DAY,
+                                slots = cloneSlots(sharedTimes, lastAmt)
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("添加第 ${dailyStages.size + 1} 天")
                     }
                 }
             }
 
-            when (mode) {
-                ScheduleMode.FIXED -> {
-                    item {
-                        Surface(
-                            shape = RoundedCornerShape(18.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                DurationRow(
-                                    durationText = fixedDurationText,
-                                    durationUnit = fixedDurationUnit,
-                                    onDurationTextChange = { fixedDurationText = it },
-                                    onUnitChange = { fixedDurationUnit = it }
-                                )
-
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-                                fixedSlots.forEachIndexed { idx, slot ->
-                                    SlotStepperRow(
-                                        time = slot.time,
-                                        amount = slot.amount,
-                                        unit = unit.ifBlank { "次" },
-                                        onPickTime = {
-                                            pickTime(context, slot.parsedTime) { newTime ->
-                                                val updated = fixedSlots.mapIndexed { i, s ->
-                                                    if (i == idx) s.copy(time = newTime) else s
-                                                }.sortedBy { it.parsedTime }
-                                                fixedSlots = updated
-                                                dailyTimes = updated
-                                            }
-                                        },
-                                        onChangeAmount = { newAmt ->
-                                            fixedSlots = fixedSlots.mapIndexed { i, s ->
-                                                if (i == idx) s.copy(amount = newAmt) else s
-                                            }
-                                        }
-                                    )
-                                }
-                            }
+            if (mode == ScheduleMode.STAGED) {
+                itemsIndexed(phasedStages, key = { idx, s -> "${s.id}_$idx" }) { idx, stage ->
+                    val range = stageDateRanges.getOrNull(idx)
+                    val rangeLabel = range?.let { (s, e) ->
+                        "${s.monthValue}/${s.dayOfMonth} ~ ${e.monthValue}/${e.dayOfMonth}"
+                    }.orEmpty()
+                    StageEditorCard(
+                        index = idx,
+                        rangeLabel = rangeLabel,
+                        stage = stage,
+                        defaultSlots = sharedTimes,
+                        unit = safeUnit,
+                        canDelete = phasedStages.size > 1,
+                        onUpdate = { updated ->
+                            phasedStages = phasedStages.mapIndexed { i, item -> if (i == idx) updated else item }
+                        },
+                        onDelete = {
+                            phasedStages = phasedStages.filterIndexed { i, _ -> i != idx }
                         }
-                    }
+                    )
                 }
 
-                ScheduleMode.DAILY -> {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "共 ${dailyStages.size} 天" + if (repeatCycle) "（自动循环）" else "",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f)
+                item {
+                    OutlinedButton(
+                        onClick = {
+                            phasedStages = phasedStages + PlanStage(
+                                durationValue = 1,
+                                durationUnit = DurationUnit.MONTH,
+                                slots = cloneSlots(sharedTimes, 1.0)
                             )
-                            TextButton(onClick = {
-                                val lastAmt = dailyStages.lastOrNull()?.slots?.firstOrNull { it.amount > 0 }?.amount ?: 1.0
-                                dailyStages = dailyStages + PlanStage(
-                                    durationValue = 1,
-                                    durationUnit = DurationUnit.DAY,
-                                    slots = cloneSlots(dailyTimes, lastAmt)
-                                )
-                            }) {
-                                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Text("加一天")
-                            }
-                        }
-                    }
-
-                    itemsIndexed(dailyStages, key = { idx, s -> "${s.id}_$idx" }) { idx, stage ->
-                        val previewDate = startDate.plusDays(idx.toLong())
-                        DayPlanCard(
-                            dayNumber = idx + 1,
-                            date = previewDate,
-                            stage = stage,
-                            defaultSlots = dailyTimes,
-                            unit = unit.ifBlank { "次" },
-                            canDelete = dailyStages.size > 1,
-                            onUpdate = { updated ->
-                                dailyStages = dailyStages.mapIndexed { i, item -> if (i == idx) updated else item }
-                            },
-                            onDelete = {
-                                dailyStages = dailyStages.filterIndexed { i, _ -> i != idx }
-                            }
-                        )
-                    }
-
-                    item {
-                        OutlinedButton(
-                            onClick = {
-                                val lastAmt = dailyStages.lastOrNull()?.slots?.firstOrNull { it.amount > 0 }?.amount ?: 1.0
-                                dailyStages = dailyStages + PlanStage(
-                                    durationValue = 1,
-                                    durationUnit = DurationUnit.DAY,
-                                    slots = cloneSlots(dailyTimes, lastAmt)
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("添加第 ${dailyStages.size + 1} 天")
-                        }
-                    }
-                }
-
-                ScheduleMode.STAGED -> {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "共 ${phasedStages.size} 个阶段",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f)
-                            )
-                            TextButton(onClick = {
-                                phasedStages = phasedStages + PlanStage(
-                                    durationValue = 1,
-                                    durationUnit = DurationUnit.MONTH,
-                                    slots = cloneSlots(dailyTimes, 1.0)
-                                )
-                            }) {
-                                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Text("添加阶段")
-                            }
-                        }
-                    }
-
-                    itemsIndexed(phasedStages, key = { idx, s -> "${s.id}_$idx" }) { idx, stage ->
-                        StageEditorCard(
-                            index = idx,
-                            stage = stage,
-                            defaultSlots = dailyTimes,
-                            unit = unit.ifBlank { "次" },
-                            canDelete = phasedStages.size > 1,
-                            onUpdate = { updated ->
-                                phasedStages = phasedStages.mapIndexed { i, item -> if (i == idx) updated else item }
-                            },
-                            onDelete = {
-                                phasedStages = phasedStages.filterIndexed { i, _ -> i != idx }
-                            }
-                        )
-                    }
-
-                    item {
-                        OutlinedButton(
-                            onClick = {
-                                phasedStages = phasedStages + PlanStage(
-                                    durationValue = 1,
-                                    durationUnit = DurationUnit.MONTH,
-                                    slots = cloneSlots(dailyTimes, 1.0)
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("添加阶段 ${phasedStages.size + 1}")
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("添加阶段 ${phasedStages.size + 1}")
                     }
                 }
             }
 
             if (initialPlan != null && onDelete != null) {
                 item {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(4.dp))
                     OutlinedButton(
                         onClick = { showDeleteConfirm = true },
                         modifier = Modifier.fillMaxWidth(),
@@ -685,7 +768,7 @@ private fun DayPlanCard(
     val context = LocalContext.current
     var expandSlots by remember(stage.id) { mutableStateOf(false) }
     val currentAmount = if (stage.isRestStage) 0.0 else (stage.slots.maxOfOrNull { it.amount } ?: 1.0)
-    val today = LocalDate.now()
+    val today = remember { LocalDate.now() }
     val relativeHint = when (date) {
         today -> "今天"
         today.plusDays(1) -> "明天"
@@ -786,6 +869,7 @@ private fun DayPlanCard(
 @Composable
 private fun StageEditorCard(
     index: Int,
+    rangeLabel: String,
     stage: PlanStage,
     defaultSlots: List<SlotDose>,
     unit: String,
@@ -813,9 +897,17 @@ private fun StageEditorCard(
                 Text(
                     text = "阶段 ${index + 1}",
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
+                    fontWeight = FontWeight.SemiBold
                 )
+                if (rangeLabel.isNotBlank()) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = rangeLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.weight(1f))
                 if (canDelete) {
                     IconButton(onClick = onDelete, modifier = Modifier.size(30.dp)) {
                         Icon(
@@ -921,6 +1013,7 @@ fun AmountStepper(
     zeroLabel: String = "跳过",
     onChange: (Double) -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     var showDirectInput by remember { mutableStateOf(false) }
 
     Row(
@@ -932,8 +1025,8 @@ fun AmountStepper(
                 .size(34.dp)
                 .clip(CircleShape)
                 .clickable(enabled = amount > 0.0) {
-                    val next = (amount - 1.0).coerceAtLeast(0.0)
-                    onChange(next)
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onChange((amount - 1.0).coerceAtLeast(0.0))
                 },
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (amount > 0.0) 0.9f else 0.35f)
@@ -965,7 +1058,10 @@ fun AmountStepper(
             modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
-                .clickable { onChange(amount + 1.0) },
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onChange(amount + 1.0)
+                },
             shape = CircleShape,
             color = MaterialTheme.colorScheme.primaryContainer
         ) {

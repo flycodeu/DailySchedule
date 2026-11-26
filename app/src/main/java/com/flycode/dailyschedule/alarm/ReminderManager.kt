@@ -18,8 +18,11 @@ import com.flycode.dailyschedule.update.GitHubUpdater
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.util.concurrent.Executors
 
 object ReminderManager {
+
+    private val worker = Executors.newSingleThreadExecutor()
 
     const val CHANNEL_REMINDER = "daily_schedule_reminders"
     const val CHANNEL_UPDATE = "daily_schedule_updates"
@@ -75,8 +78,11 @@ object ReminderManager {
     }
 
     fun rescheduleAll(context: Context) {
-        runCatching {
-            rescheduleAllInternal(context)
+        val appContext = context.applicationContext
+        worker.execute {
+            runCatching {
+                rescheduleAllInternal(appContext)
+            }
         }
     }
 
@@ -104,6 +110,10 @@ object ReminderManager {
         }
 
         val state = AppStore.current(appContext)
+        if (!state.settings.remindersEnabled) {
+            prefs.edit().putStringSet(KEY_CODES, emptySet()).apply()
+            return
+        }
         val now = LocalDateTime.now()
         val today = now.toLocalDate()
         val leadMinutes = state.settings.reminderLeadMinutes.toLong().coerceAtLeast(0L)
@@ -265,6 +275,7 @@ class ReminderReceiver : BroadcastReceiver() {
             ReminderManager.ACTION_FIRE_REMINDER -> {
                 ReminderManager.ensureChannels(context)
                 val state = AppStore.current(context)
+                if (!state.settings.remindersEnabled) return
                 val alreadyDone = state.checkIns.containsKey(checkInKey(planId, dateIso, slotId))
                 if (!alreadyDone) {
                     val plan = state.plans.firstOrNull { it.id == planId }

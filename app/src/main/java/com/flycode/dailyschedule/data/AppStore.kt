@@ -17,11 +17,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.time.LocalDate
+import java.util.concurrent.Executors
 
 object AppStore {
 
     private const val FILE_NAME = "daily_schedule_v1.json"
     private val lock = Any()
+    private val ioExecutor = Executors.newSingleThreadExecutor()
     private var appContext: Context? = null
 
     private val _state = MutableStateFlow(AppState())
@@ -163,24 +165,37 @@ object AppStore {
     }
 
     private fun update(context: Context, transform: (AppState) -> AppState) {
+        val updated: AppState
         synchronized(lock) {
             if (appContext == null) init(context)
-            val updated = transform(_state.value)
+            updated = transform(_state.value)
             _state.value = updated
-            persistLocked(updated)
+        }
+        persistAsync(updated)
+    }
+
+    private fun persistAsync(data: AppState) {
+        val ctx = appContext ?: return
+        val snapshotJson = toJson(data).toString()
+        ioExecutor.execute {
+            writeSnapshot(ctx, snapshotJson)
         }
     }
 
     private fun persistLocked(data: AppState) {
         val ctx = appContext ?: return
+        writeSnapshot(ctx, toJson(data).toString())
+    }
+
+    private fun writeSnapshot(ctx: Context, jsonText: String) {
         runCatching {
             val dir = ctx.filesDir
             if (!dir.exists()) dir.mkdirs()
             val file = File(dir, FILE_NAME)
             val tmp = File(dir, "$FILE_NAME.tmp")
-            tmp.writeText(toJson(data).toString())
+            tmp.writeText(jsonText)
             if (!tmp.renameTo(file)) {
-                file.writeText(tmp.readText())
+                file.writeText(jsonText)
                 tmp.delete()
             }
         }
@@ -211,6 +226,8 @@ object AppStore {
             put("githubRepo", state.settings.githubRepo)
             put("githubMirrorPrefix", state.settings.githubMirrorPrefix)
             put("autoCheckUpdates", state.settings.autoCheckUpdates)
+            put("remindersEnabled", state.settings.remindersEnabled)
+            put("hidePermissionPrompts", state.settings.hidePermissionPrompts)
             put("reminderLeadMinutes", state.settings.reminderLeadMinutes)
         })
     }
@@ -241,6 +258,8 @@ object AppStore {
             githubRepo = settingsObj.optString("githubRepo", BuildConfig.GITHUB_REPO),
             githubMirrorPrefix = settingsObj.optString("githubMirrorPrefix", ""),
             autoCheckUpdates = settingsObj.optBoolean("autoCheckUpdates", true),
+            remindersEnabled = settingsObj.optBoolean("remindersEnabled", true),
+            hidePermissionPrompts = settingsObj.optBoolean("hidePermissionPrompts", false),
             reminderLeadMinutes = settingsObj.optInt("reminderLeadMinutes", 0)
         )
         return AppState(plans = plans, checkIns = checkIns, settings = settings)

@@ -19,9 +19,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -51,12 +53,13 @@ fun TodayScreen(
     onSelectDate: (LocalDate) -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onRequestExactAlarmPermission: () -> Unit,
+    onDismissPermissionBanner: () -> Unit,
     onToggleSlot: (planId: String, date: LocalDate, slotId: String) -> Unit,
     onAdjustDay: (ResolvedDayPlan) -> Unit,
     onEditPlan: (String) -> Unit,
     onCreatePlan: () -> Unit
 ) {
-    val today = LocalDate.now()
+    val today = remember { LocalDate.now() }
     val resolvedPlans = remember(state.plans, selectedDate) {
         ScheduleEngine.resolveAllForDate(state.plans, selectedDate)
     }
@@ -69,9 +72,11 @@ fun TodayScreen(
     val progressTarget = if (totalSlots > 0) doneSlots.toFloat() / totalSlots.toFloat() else 0f
     val progress by animateFloatAsState(targetValue = progressTarget, label = "dailyProgress")
 
+    val showPermissionPrompts = state.settings.remindersEnabled && !state.settings.hidePermissionPrompts
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 92.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
@@ -82,24 +87,26 @@ fun TodayScreen(
             )
         }
 
-        if (!hasNotificationPermission) {
+        if (showPermissionPrompts && !hasNotificationPermission) {
             item {
                 PermissionBanner(
                     icon = Icons.Rounded.Notifications,
                     title = "开启通知权限",
-                    subtitle = "用于按时推送提醒与快捷打卡",
+                    subtitle = "用于按时提醒，不用提醒可点右侧关闭",
                     actionText = "授权",
-                    onAction = onRequestNotificationPermission
+                    onAction = onRequestNotificationPermission,
+                    onDismiss = onDismissPermissionBanner
                 )
             }
-        } else if (!hasExactAlarmPermission) {
+        } else if (showPermissionPrompts && !hasExactAlarmPermission) {
             item {
                 PermissionBanner(
                     icon = Icons.Rounded.Warning,
                     title = "开启精确闹钟",
-                    subtitle = "避免系统延迟定时提醒",
-                    actionText = "设置",
-                    onAction = onRequestExactAlarmPermission
+                    subtitle = "减少提醒延迟，不用闹钟可点右侧隐藏",
+                    actionText = "开启",
+                    onAction = onRequestExactAlarmPermission,
+                    onDismiss = onDismissPermissionBanner
                 )
             }
         }
@@ -125,8 +132,8 @@ fun TodayScreen(
                             Spacer(Modifier.height(4.dp))
                             val statusText = when {
                                 resolvedPlans.isEmpty() -> "暂无执行中的计划"
-                                totalSlots == 0 -> "今天全为休息 / 停用阶段"
-                                doneSlots == totalSlots -> "全部 $totalSlots 项已确认完成"
+                                totalSlots == 0 -> "今天全为休息日"
+                                doneSlots == totalSlots -> "全部 $totalSlots 项已完成"
                                 else -> "已完成 $doneSlots / $totalSlots 项"
                             }
                             Text(
@@ -256,7 +263,8 @@ private fun PermissionBanner(
     title: String,
     subtitle: String,
     actionText: String,
-    onAction: () -> Unit
+    onAction: () -> Unit,
+    onDismiss: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -264,14 +272,14 @@ private fun PermissionBanner(
         color = MaterialTheme.colorScheme.secondaryContainer
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(19.dp)
             )
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -287,8 +295,19 @@ private fun PermissionBanner(
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                 )
             }
-            TextButton(onClick = onAction) {
+            TextButton(
+                onClick = onAction,
+                contentPadding = PaddingValues(horizontal = 8.dp)
+            ) {
                 Text(actionText, fontWeight = FontWeight.Bold)
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "隐藏提示",
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                )
             }
         }
     }

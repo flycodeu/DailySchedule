@@ -39,7 +39,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -256,18 +258,21 @@ fun PlanDayCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        val isForeverDaily = resolved.totalStages == 1 && resolved.stageTotalDays == 1 && resolved.plan.repeatCycle
                         if (resolved.isOverridden) {
                             StagePill(text = "已调", color = MaterialTheme.colorScheme.secondary)
-                        } else if (resolved.plan.repeatCycle && resolved.cycleNumber > 1) {
+                        } else if (!isForeverDaily && resolved.plan.repeatCycle && resolved.cycleNumber > 1) {
                             StagePill(text = "第${resolved.cycleNumber}轮", color = accent)
                         }
                     }
                     Spacer(Modifier.height(2.dp))
+                    val isForeverDaily = resolved.totalStages == 1 && resolved.stageTotalDays == 1 && resolved.plan.repeatCycle
                     val subtitle = buildString {
-                        if (resolved.totalStages > 1) {
-                            append("阶段 ${resolved.stageIndex + 1}/${resolved.totalStages} · ")
+                        when {
+                            isForeverDaily -> append("每日计划")
+                            resolved.totalStages > 1 -> append("阶段 ${resolved.stageIndex + 1}/${resolved.totalStages} · 第${resolved.dayInStage}/${resolved.stageTotalDays}天")
+                            else -> append("第${resolved.dayInStage}/${resolved.stageTotalDays}天")
                         }
-                        append("第${resolved.dayInStage}/${resolved.stageTotalDays}天")
                         if (resolved.plan.note.isNotBlank()) {
                             append(" · ${resolved.plan.note}")
                         }
@@ -448,6 +453,7 @@ private fun SlotCheckRow(
     record: CheckInRecord?,
     onClick: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     val checked = record != null
     val bgColor by animateColorAsState(
         targetValue = if (checked) accent.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -463,7 +469,10 @@ private fun SlotCheckRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(bgColor)
-            .clickable(onClick = onClick)
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
