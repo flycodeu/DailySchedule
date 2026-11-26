@@ -88,6 +88,34 @@ object AppStore {
         }
     }
 
+    fun togglePlanHidden(context: Context, planId: String): Boolean {
+        var nextHidden = false
+        update(context) { current ->
+            current.copy(
+                plans = current.plans.map {
+                    if (it.id == planId) {
+                        nextHidden = !it.hidden
+                        it.copy(hidden = nextHidden)
+                    } else it
+                }
+            )
+        }
+        return nextHidden
+    }
+
+    fun movePlan(context: Context, planId: String, moveUp: Boolean) {
+        update(context) { current ->
+            val list = current.plans.toMutableList()
+            val idx = list.indexOfFirst { it.id == planId }
+            if (idx < 0) return@update current
+            val targetIdx = if (moveUp) idx - 1 else idx + 1
+            if (targetIdx !in list.indices) return@update current
+            val item = list.removeAt(idx)
+            list.add(targetIdx, item)
+            current.copy(plans = list)
+        }
+    }
+
     fun setDayOverride(
         context: Context,
         planId: String,

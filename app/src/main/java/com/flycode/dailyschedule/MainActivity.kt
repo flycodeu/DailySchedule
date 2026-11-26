@@ -21,10 +21,16 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,6 +62,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -64,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.flycode.dailyschedule.alarm.ReminderManager
 import com.flycode.dailyschedule.data.AppStore
+import com.flycode.dailyschedule.model.AppSettings
 import com.flycode.dailyschedule.model.PlanItem
 import com.flycode.dailyschedule.model.ResolvedDayPlan
 import com.flycode.dailyschedule.ui.AppLockScreen
@@ -100,13 +108,14 @@ class MainActivity : ComponentActivity() {
     private val openUpdateState = mutableStateOf(false)
     private val showHiddenState = mutableStateOf(false)
     private val appLockedState = mutableStateOf(false)
+    private val backgroundObscuredState = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         runCatching { enableEdgeToEdge() }
         val initialState = runCatching { AppStore.init(this) }.getOrNull()
         if (initialState != null) {
-            applyScreenshotFlag(initialState.settings.blockScreenshots)
+            applyWindowPrivacy(initialState.settings)
             if (initialState.settings.appLockEnabled && initialState.settings.hasPrivacyPin) {
                 appLockedState.value = true
             }
@@ -127,10 +136,25 @@ class MainActivity : ComponentActivity() {
                     onChangeShowHidden = { showHiddenState.value = it },
                     isAppLocked = appLockedState.value,
                     onUnlockApp = { appLockedState.value = false },
-                    onBlockScreenshotsChanged = { applyScreenshotFlag(it) }
+                    isBackgroundObscured = backgroundObscuredState.value,
+                    onPrivacySettingsChanged = { applyWindowPrivacy(it) }
                 )
             }
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        val settings = AppStore.state.value.settings
+        if (settings.autoRelockOnBackground) {
+            backgroundObscuredState.value = true
+            showHiddenState.value = false
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        backgroundObscuredState.value = false
     }
 
     override fun onStop() {
@@ -149,12 +173,15 @@ class MainActivity : ComponentActivity() {
         handleIntentExtras(intent)
     }
 
-    private fun applyScreenshotFlag(block: Boolean) {
+    private fun applyWindowPrivacy(settings: AppSettings) {
         runCatching {
-            if (block) {
+            if (settings.blockScreenshots) {
                 window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             } else {
                 window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                setRecentsScreenshotEnabled(!settings.autoRelockOnBackground && !settings.blockScreenshots)
             }
         }
     }
@@ -183,25 +210,90 @@ private fun DailyScheduleApp(
     onChangeShowHidden: (Boolean) -> Unit,
     isAppLocked: Boolean,
     onUnlockApp: () -> Unit,
-    onBlockScreenshotsChanged: (Boolean) -> Unit
+    isBackgroundObscured: Boolean,
+    onPrivacySettingsChanged: (AppSettings) -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val state by AppStore.state.collectAsState()
 
-    LaunchedEffect(state.settings.blockScreenshots) {
-        onBlockScreenshotsChanged(state.settings.blockScreenshots)
+    LaunchedEffect(state.settings.blockScreenshots, state.settings.autoRelockOnBackground) {
+        onPrivacySettingsChanged(state.settings)
     }
 
-    if (isAppLocked && state.settings.appLockEnabled && state.settings.hasPrivacyPin) {
-        AppLockScreen(
-            pinHash = state.settings.privacyPinHash,
-            onUnlocked = onUnlockApp
-        )
-        return
+    val blurModifier = if (isBackgroundObscured && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        Modifier.blur(24.dp)
+    } else {
+        Modifier
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().then(blurModifier)) {
+            if (isAppLocked && state.settings.appLockEnabled && state.settings.hasPrivacyPin) {
+                AppLockScreen(
+                    pinHash = state.settings.privacyPinHash,
+                    onUnlocked = onUnlockApp
+                )
+            } else {
+                DailyScheduleMainContent(
+                    state = state,
+                    pendingOpenDate = pendingOpenDate,
+                    onConsumedOpenDate = onConsumedOpenDate,
+                    pendingOpenUpdate = pendingOpenUpdate,
+                    onConsumedOpenUpdate = onConsumedOpenUpdate,
+                    showHiddenPlans = showHiddenPlans,
+                    onChangeShowHidden = onChangeShowHidden,
+                    context = context,
+                    haptic = haptic,
+                    scope = scope
+                )
+            }
+        }
+
+        if (isBackgroundObscured) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.86f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "日常计划",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "隐私保护中",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun DailyScheduleMainContent(
+    state: com.flycode.dailyschedule.model.AppState,
+    pendingOpenDate: LocalDate?,
+    onConsumedOpenDate: () -> Unit,
+    pendingOpenUpdate: Boolean,
+    onConsumedOpenUpdate: () -> Unit,
+    showHiddenPlans: Boolean,
+    onChangeShowHidden: (Boolean) -> Unit,
+    context: android.content.Context,
+    haptic: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    scope: kotlinx.coroutines.CoroutineScope
+) {
     var currentTab by remember { mutableStateOf(MainTab.TODAY) }
     var currentRoute by remember { mutableStateOf(ScreenRoute.HOME) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
@@ -249,6 +341,14 @@ private fun DailyScheduleApp(
             showPinVerifyForHidden = true
         } else {
             onChangeShowHidden(true)
+        }
+    }
+
+    fun toggleSinglePlanHidden(planId: String) {
+        val nowHidden = AppStore.togglePlanHidden(context, planId)
+        ReminderManager.rescheduleAll(context)
+        if (nowHidden && !showHiddenPlans) {
+            Toast.makeText(context, "已隐藏，长按首页标题可查看", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -341,7 +441,7 @@ private fun DailyScheduleApp(
                     AppStore.upsertPlan(context, plan)
                     ReminderManager.rescheduleAll(context)
                     if (plan.hidden && !showHiddenPlans) {
-                        Toast.makeText(context, "已保存为隐藏计划，长按首页标题可查看", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "已隐藏，长按首页标题可查看", Toast.LENGTH_SHORT).show()
                     }
                     currentRoute = ScreenRoute.HOME
                 },
@@ -406,7 +506,7 @@ private fun DailyScheduleApp(
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             if (showHiddenPlans) {
                                                 onChangeShowHidden(false)
-                                                Toast.makeText(context, "已重新隐藏隐私计划", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "已隐藏隐私计划", Toast.LENGTH_SHORT).show()
                                             } else {
                                                 requestToggleHidden(true)
                                                 if (!state.settings.hasPrivacyPin) {
@@ -426,7 +526,7 @@ private fun DailyScheduleApp(
                                         }
                                     ) {
                                         Text(
-                                            text = "隐私可见 · 点击隐藏",
+                                            text = "隐私可见 · 点击收起",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSecondaryContainer,
                                             fontWeight = FontWeight.SemiBold,
@@ -527,6 +627,11 @@ private fun DailyScheduleApp(
                                     editingPlan = state.plans.firstOrNull { it.id == planId }
                                     if (editingPlan != null) currentRoute = ScreenRoute.EDITOR
                                 },
+                                onToggleHiddenPlan = { toggleSinglePlanHidden(it) },
+                                onDeletePlan = { planId ->
+                                    AppStore.deletePlan(context, planId)
+                                    ReminderManager.rescheduleAll(context)
+                                },
                                 onCreatePlan = {
                                     editingPlan = null
                                     currentRoute = ScreenRoute.EDITOR
@@ -546,6 +651,11 @@ private fun DailyScheduleApp(
                                     editingPlan = state.plans.firstOrNull { it.id == planId }
                                     if (editingPlan != null) currentRoute = ScreenRoute.EDITOR
                                 },
+                                onToggleHiddenPlan = { toggleSinglePlanHidden(it) },
+                                onDeletePlan = { planId ->
+                                    AppStore.deletePlan(context, planId)
+                                    ReminderManager.rescheduleAll(context)
+                                },
                                 onCreatePlan = {
                                     editingPlan = null
                                     currentRoute = ScreenRoute.EDITOR
@@ -564,6 +674,14 @@ private fun DailyScheduleApp(
                                 },
                                 onTogglePlanActive = { planId ->
                                     AppStore.togglePlanActive(context, planId)
+                                    ReminderManager.rescheduleAll(context)
+                                },
+                                onTogglePlanHidden = { toggleSinglePlanHidden(it) },
+                                onMovePlan = { planId, moveUp ->
+                                    AppStore.movePlan(context, planId, moveUp)
+                                },
+                                onDeletePlan = { planId ->
+                                    AppStore.deletePlan(context, planId)
                                     ReminderManager.rescheduleAll(context)
                                 }
                             )

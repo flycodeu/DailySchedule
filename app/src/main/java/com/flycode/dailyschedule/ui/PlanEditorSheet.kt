@@ -83,9 +83,9 @@ import java.util.UUID
 private val PresetUnits = listOf("片", "粒", "次", "ml", "分钟")
 
 private enum class ScheduleMode(val label: String, val desc: String) {
-    FIXED("每日固定", "每天按相同时间与数量执行"),
-    DAILY("逐日安排", "每天单独设数量，如今天 1、明天 1、后天 2"),
-    STAGED("多阶段", "按周或按月分阶段调整数量与频次")
+    FIXED("每日固定", "每天相同"),
+    DAILY("逐日安排", "每天单独设置数量"),
+    STAGED("多阶段", "按周或月分阶段设置")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -334,7 +334,6 @@ fun PlanEditorScreen(
                             value = title,
                             onValueChange = { title = it },
                             label = { Text("名称") },
-                            placeholder = { Text("例如：维生素、每日饮水") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -380,7 +379,6 @@ fun PlanEditorScreen(
                             value = note,
                             onValueChange = { note = it },
                             label = { Text("备注（选填）") },
-                            placeholder = { Text("如：饭后半小时") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -425,7 +423,7 @@ fun PlanEditorScreen(
                                 Text("设为隐藏计划", style = MaterialTheme.typography.bodyLarge)
                                 if (hidden) {
                                     Text(
-                                        text = "默认隐藏，长按首页标题或在设置中查看",
+                                        text = "长按首页标题可切换显示",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

@@ -3,15 +3,18 @@ package com.flycode.dailyschedule.ui
 import android.app.TimePickerDialog
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,14 +25,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -101,6 +109,8 @@ fun DayScheduleSection(
     onToggleSlot: (planId: String, date: LocalDate, slotId: String) -> Unit,
     onAdjustDay: (ResolvedDayPlan) -> Unit,
     onEditPlan: (String) -> Unit,
+    onToggleHiddenPlan: (String) -> Unit,
+    onDeletePlan: (String) -> Unit,
     onCreatePlan: () -> Unit,
     emptyTitle: String = "暂无安排",
     emptySubtitle: String = ""
@@ -150,7 +160,9 @@ fun DayScheduleSection(
                 checkIns = checkIns,
                 onToggleSlot = onToggleSlot,
                 onAdjustDay = { onAdjustDay(resolved) },
-                onEditPlan = { onEditPlan(resolved.plan.id) }
+                onEditPlan = { onEditPlan(resolved.plan.id) },
+                onToggleHidden = { onToggleHiddenPlan(resolved.plan.id) },
+                onDeletePlan = { onDeletePlan(resolved.plan.id) }
             )
         }
 
@@ -165,7 +177,7 @@ fun DayScheduleSection(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "今日休息 (0)",
+                        text = "今日休息",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium
@@ -208,19 +220,25 @@ fun DayScheduleSection(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PlanDayCard(
     resolved: ResolvedDayPlan,
     checkIns: Map<String, CheckInRecord>,
     onToggleSlot: (planId: String, date: LocalDate, slotId: String) -> Unit,
     onAdjustDay: () -> Unit,
-    onEditPlan: () -> Unit
+    onEditPlan: () -> Unit,
+    onToggleHidden: () -> Unit,
+    onDeletePlan: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     val accent = planAccentColor(resolved.plan.colorIndex)
     val doneCount = resolved.activeSlots.count { slot ->
         checkIns.containsKey(checkInKey(resolved.plan.id, resolved.date, slot.id))
     }
     val allDone = doneCount == resolved.activeSlots.size && resolved.activeSlots.isNotEmpty()
+    var showMenu by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -235,7 +253,13 @@ fun PlanDayCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onEditPlan),
+                    .combinedClickable(
+                        onClick = onEditPlan,
+                        onLongClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showMenu = true
+                        }
+                    ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
@@ -260,7 +284,7 @@ fun PlanDayCard(
                         )
                         val isForeverDaily = resolved.totalStages == 1 && resolved.stageTotalDays == 1 && resolved.plan.repeatCycle
                         if (resolved.plan.hidden) {
-                            StagePill(text = "隐私", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            StagePill(text = "隐藏", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (resolved.isOverridden) {
                             StagePill(text = "已调", color = MaterialTheme.colorScheme.secondary)
@@ -272,7 +296,7 @@ fun PlanDayCard(
                     val isForeverDaily = resolved.totalStages == 1 && resolved.stageTotalDays == 1 && resolved.plan.repeatCycle
                     val subtitle = buildString {
                         when {
-                            isForeverDaily -> append("每日计划")
+                            isForeverDaily -> append("每日")
                             resolved.totalStages > 1 -> append("阶段 ${resolved.stageIndex + 1}/${resolved.totalStages} · 第${resolved.dayInStage}/${resolved.stageTotalDays}天")
                             else -> append("第${resolved.dayInStage}/${resolved.stageTotalDays}天")
                         }
@@ -312,12 +336,100 @@ fun PlanDayCard(
                         unit = resolved.plan.unit,
                         accent = accent,
                         record = record,
-                        onClick = { onToggleSlot(resolved.plan.id, resolved.date, slot.id) }
+                        onToggle = { onToggleSlot(resolved.plan.id, resolved.date, slot.id) },
+                        onSwipeLeft = onAdjustDay,
+                        onLongPress = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showMenu = true
+                        }
                     )
                 }
             }
         }
     }
+
+    if (showMenu) {
+        ActionMenuDialog(
+            title = resolved.plan.title,
+            actions = listOf(
+                ActionMenuItem("调整本日数量") { showMenu = false; onAdjustDay() },
+                ActionMenuItem("编辑计划") { showMenu = false; onEditPlan() },
+                ActionMenuItem(if (resolved.plan.hidden) "取消隐藏" else "设为隐藏") { showMenu = false; onToggleHidden() },
+                ActionMenuItem("删除计划", destructive = true) { showMenu = false; showDeleteConfirm = true }
+            ),
+            onDismiss = { showMenu = false }
+        )
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("删除计划") },
+            text = { Text("确定删除「${resolved.plan.title}」？") },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirm = false; onDeletePlan() }) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            }
+        )
+    }
+}
+
+data class ActionMenuItem(
+    val label: String,
+    val destructive: Boolean = false,
+    val onClick: () -> Unit
+)
+
+@Composable
+fun ActionMenuDialog(
+    title: String,
+    actions: List<ActionMenuItem>,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                actions.forEachIndexed { idx, item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(onClick = item.onClick)
+                            .padding(horizontal = 10.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = item.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (item.destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = if (item.destructive) FontWeight.Medium else FontWeight.Normal
+                        )
+                    }
+                    if (idx < actions.lastIndex) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 @Composable
@@ -421,13 +533,9 @@ fun DayOverrideDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    TextButton(onClick = onEditFullPlan) {
-                        Text("编辑总计划")
-                    }
+                    TextButton(onClick = onEditFullPlan) { Text("编辑计划") }
                     if (resolved.isOverridden) {
-                        TextButton(onClick = { onSaveOverride(null) }) {
-                            Text("恢复默认")
-                        }
+                        TextButton(onClick = { onSaveOverride(null) }) { Text("恢复默认") }
                     }
                 }
             }
@@ -437,27 +545,47 @@ fun DayOverrideDialog(
                 val active = workingSlots.filter { it.amount > 0.0 }
                 onSaveOverride(active)
             }) {
-                Text("保存本日")
+                Text("保存")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
+            TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun SlotCheckRow(
     slot: SlotDose,
     unit: String,
     accent: Color,
     record: CheckInRecord?,
-    onClick: () -> Unit
+    onToggle: () -> Unit,
+    onSwipeLeft: () -> Unit,
+    onLongPress: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     val checked = record != null
+
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onToggle()
+                    false
+                }
+                SwipeToDismissBoxValue.EndToStart -> {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSwipeLeft()
+                    false
+                }
+                SwipeToDismissBoxValue.Settled -> false
+            }
+        }
+    )
+
     val bgColor by animateColorAsState(
         targetValue = if (checked) accent.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         label = "slotBg"
@@ -467,76 +595,114 @@ private fun SlotCheckRow(
         label = "checkBg"
     )
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(bgColor)
-            .clickable {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onClick()
+    SwipeToDismissBox(
+        state = dismissState,
+        modifier = Modifier.clip(RoundedCornerShape(14.dp)),
+        backgroundContent = {
+            val dir = dismissState.dismissDirection
+            val swipeBg = when (dir) {
+                SwipeToDismissBoxValue.StartToEnd -> accent.copy(alpha = 0.2f)
+                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.secondaryContainer
+                else -> Color.Transparent
             }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(swipeBg)
+                    .padding(horizontal = 16.dp),
+                contentAlignment = if (dir == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
+            ) {
+                if (dir == SwipeToDismissBoxValue.StartToEnd) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Check, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (checked) "撤销" else "确认", style = MaterialTheme.typography.labelMedium, color = accent, fontWeight = FontWeight.SemiBold)
+                    }
+                } else if (dir == SwipeToDismissBoxValue.EndToStart) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("调本日", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .size(22.dp)
-                .clip(CircleShape)
-                .background(checkBg)
-                .border(
-                    width = 1.8.dp,
-                    color = if (checked) accent else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .background(bgColor)
+                .combinedClickable(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onToggle()
+                    },
+                    onLongClick = onLongPress
+                )
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            if (checked) {
-                Icon(
-                    imageVector = Icons.Rounded.Check,
-                    contentDescription = "已确认",
-                    tint = Color.White,
-                    modifier = Modifier.size(14.dp)
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(checkBg)
+                    .border(
+                        width = 1.8.dp,
+                        color = if (checked) accent else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (checked) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = "已确认",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Text(
+                text = slot.time,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = if (checked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+            )
+
+            if (slot.label.isNotBlank()) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = slot.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        }
 
-        Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.weight(1f))
 
-        Text(
-            text = slot.time,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = if (checked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
-        )
-
-        if (slot.label.isNotBlank()) {
-            Spacer(Modifier.width(6.dp))
             Text(
-                text = slot.label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "${ScheduleEngine.formatAmount(slot.amount)} $unit",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (checked) accent else MaterialTheme.colorScheme.onSurface,
+                textDecoration = if (checked) TextDecoration.LineThrough else TextDecoration.None
+            )
+
+            Spacer(Modifier.width(10.dp))
+
+            Text(
+                text = if (record != null) formatEpochTime(record.checkedAtMillis) else "确认",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (checked) accent else MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium
             )
         }
-
-        Spacer(Modifier.weight(1f))
-
-        Text(
-            text = "${ScheduleEngine.formatAmount(slot.amount)} $unit",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (checked) accent else MaterialTheme.colorScheme.onSurface,
-            textDecoration = if (checked) TextDecoration.LineThrough else TextDecoration.None
-        )
-
-        Spacer(Modifier.width(10.dp))
-
-        Text(
-            text = if (record != null) formatEpochTime(record.checkedAtMillis) else "确认",
-            style = MaterialTheme.typography.labelMedium,
-            color = if (checked) accent else MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Medium
-        )
     }
 }
 

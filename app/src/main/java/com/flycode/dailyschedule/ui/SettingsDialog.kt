@@ -138,11 +138,11 @@ fun SettingsScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (hiddenCount > 0) "显示隐藏计划（$hiddenCount 项）" else "显示隐藏计划",
+                                    text = if (hiddenCount > 0) "显示隐藏计划（$hiddenCount）" else "显示隐藏计划",
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                                 Text(
-                                    text = "长按首页标题「日常计划」也可快速切换",
+                                    text = "长按首页标题也可切换",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -163,9 +163,9 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("隐私访问密码", style = MaterialTheme.typography.bodyLarge)
+                                Text("隐私密码", style = MaterialTheme.typography.bodyLarge)
                                 Text(
-                                    text = if (state.settings.hasPrivacyPin) "已启用 4 位数字密码保护" else "未设置（点击设置）",
+                                    text = if (state.settings.hasPrivacyPin) "已设置" else "未设置",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -184,7 +184,7 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "启动应用需要密码",
+                                    text = "启动需验证密码",
                                     style = MaterialTheme.typography.bodyLarge,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -203,11 +203,14 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "切后台自动重新隐藏",
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.weight(1f)
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("切后台模糊并隐藏", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = "多任务页弱化画面并收起隐藏项",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                             Switch(
                                 checked = state.settings.autoRelockOnBackground,
                                 onCheckedChange = { enabled ->
@@ -222,14 +225,11 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("通知隐藏具体内容", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    text = "锁屏及通知栏仅显示通用提醒，隐藏计划名与数量",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            Text(
+                                text = "通知隐藏详情",
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f)
+                            )
                             Switch(
                                 checked = state.settings.privacyMaskNotifications,
                                 onCheckedChange = { enabled ->
@@ -244,14 +244,11 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("防截屏与多任务保护", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    text = "禁止截屏并在最近任务切换页隐藏预览画面",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            Text(
+                                text = "禁止截屏",
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f)
+                            )
                             Switch(
                                 checked = state.settings.blockScreenshots,
                                 onCheckedChange = { enabled ->
@@ -286,9 +283,9 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("开启定时提醒与闹钟", style = MaterialTheme.typography.bodyLarge)
+                                Text("定时提醒与闹钟", style = MaterialTheme.typography.bodyLarge)
                                 Text(
-                                    text = if (state.settings.remindersEnabled) "已启用，按计划时段推送提醒" else "已关闭，仅作为打卡记录使用",
+                                    text = if (state.settings.remindersEnabled) "已开启" else "已关闭",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

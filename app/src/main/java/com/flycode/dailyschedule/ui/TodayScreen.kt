@@ -3,6 +3,7 @@ package com.flycode.dailyschedule.ui
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,11 +32,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.flycode.dailyschedule.model.AppState
@@ -57,6 +61,8 @@ fun TodayScreen(
     onToggleSlot: (planId: String, date: LocalDate, slotId: String) -> Unit,
     onAdjustDay: (ResolvedDayPlan) -> Unit,
     onEditPlan: (String) -> Unit,
+    onToggleHiddenPlan: (String) -> Unit,
+    onDeletePlan: (String) -> Unit,
     onCreatePlan: () -> Unit
 ) {
     val today = remember { LocalDate.now() }
@@ -92,7 +98,7 @@ fun TodayScreen(
                 PermissionBanner(
                     icon = Icons.Rounded.Notifications,
                     title = "开启通知权限",
-                    subtitle = "用于按时提醒，不用提醒可点右侧关闭",
+                    subtitle = "用于按时提醒",
                     actionText = "授权",
                     onAction = onRequestNotificationPermission,
                     onDismiss = onDismissPermissionBanner
@@ -103,7 +109,7 @@ fun TodayScreen(
                 PermissionBanner(
                     icon = Icons.Rounded.Warning,
                     title = "开启精确闹钟",
-                    subtitle = "减少提醒延迟，不用闹钟可点右侧隐藏",
+                    subtitle = "减少提醒延迟",
                     actionText = "开启",
                     onAction = onRequestExactAlarmPermission,
                     onDismiss = onDismissPermissionBanner
@@ -173,6 +179,8 @@ fun TodayScreen(
                 onToggleSlot = onToggleSlot,
                 onAdjustDay = onAdjustDay,
                 onEditPlan = onEditPlan,
+                onToggleHiddenPlan = onToggleHiddenPlan,
+                onDeletePlan = onDeletePlan,
                 onCreatePlan = onCreatePlan,
                 emptyTitle = if (state.plans.isEmpty()) "暂无计划" else "当天暂无安排",
                 emptySubtitle = ""
@@ -191,9 +199,25 @@ private fun WeekStrip(
     val days = remember(selectedDate) {
         (0L..6L).map { startOfWindow.plusDays(it) }
     }
+    var dragAccum by remember { mutableFloatStateOf(0f) }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(selectedDate) {
+                detectHorizontalDragGestures(
+                    onDragStart = { dragAccum = 0f },
+                    onHorizontalDrag = { _, delta -> dragAccum += delta },
+                    onDragEnd = {
+                        if (dragAccum < -80f) {
+                            onSelectDate(selectedDate.plusDays(7))
+                        } else if (dragAccum > 80f) {
+                            onSelectDate(selectedDate.minusDays(7))
+                        }
+                        dragAccum = 0f
+                    }
+                )
+            },
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         days.forEach { day ->
